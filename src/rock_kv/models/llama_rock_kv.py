@@ -40,7 +40,6 @@ class LlamaAttention_RoCKKV(nn.Module):
         self.v_bits = config.v_bits
         self.group_size = config.group_size
         self.residual_length = config.buffer_length     # renamed to `buffer_length`
-        assert getattr(config, "use_flash", False), "currently RoCKKV is only available for flash-attn. Please add ```config.use_flash = True```"
         # RoCKKV
         self.sink_length = config.sink_length
         self.buffer_length = config.buffer_length
@@ -409,11 +408,7 @@ class LlamaDecoderLayer_RoCKKV(nn.Module):
     def __init__(self, config: LlamaConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = (
-            LlamaAttention_RoCKKV(config=config, layer_idx=layer_idx)
-            if not getattr(config, "use_flash", False)
-            else LlamaFlashAttention_RoCKKV(config=config, layer_idx=layer_idx)
-        )
+        self.self_attn = LlamaFlashAttention_RoCKKV(config=config, layer_idx=layer_idx)
         self.mlp = LlamaMLP(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)

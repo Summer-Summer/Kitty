@@ -2,23 +2,22 @@
 
 export TORCH_CUDA_ARCH_LIST="9.0"
 
-GPU=4,5,6,7
+GPU=0,3
 HF_HOME=/home/xhjustc/HF_HOME
-#MODEL=${HF_HOME}/llama2/llama2-7b
-#MODEL=${HF_HOME}/llama2/llama2-70b
-#MODEL=${HF_HOME}/llama3.1/llama3.1-8b
-#MODEL=${HF_HOME}/llama3.1/llama3.1-70b
-MODEL=${HF_HOME}/DeepSeek_R1/llama-8b
-#MODEL=${HF_HOME}/DeepSeek_R1/llama-70b
-
+MODEL=meta-llama/Llama-3.1-8B-Instruct
+MODEL=meta-llama/Llama-3.3-70B-Instruct
 
 CUDA_VISIBLE_DEVICES=${GPU} \
-python gen_test.py --model ${MODEL} \
---gen_kivi --gen_flashkv --gen_hf \
---torch_compile
-
-
-# Visualize the kv cache
-#CUDA_VISIBLE_DEVICES=${GPU} \
-#python gen_test.py --model ${MODEL} \
-#--gen_hf --visualize_kv
+gen_rock_kv \
+--model ${MODEL} \
+--gen_rock_kv \
+--max_token_new 500 \
+--batch_size 1 \
+--sink_length 32 \
+--buffer_length 128 \
+--group_size 128 \
+--kbits 2 \
+--vbits 2 \
+--promote_ratio 0.0 \
+--promote_bit 4 \
+--channel_selection -1

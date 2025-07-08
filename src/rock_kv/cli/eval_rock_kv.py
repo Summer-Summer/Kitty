@@ -21,7 +21,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     ModelName = args.model.split("/")[-1]
-    config = LlamaConfig.from_pretrained(args.model)
 
     #
     if args.eval_hf:
@@ -30,8 +29,7 @@ def main() -> None:
         release_model_memory(model_hf)
     #
     elif args.eval_rock_kv:
-        config.use_flash = True
-        #
+        config = LlamaConfig.from_pretrained(args.model)
         config.sink_length = args.sink_length
         config.buffer_length = args.buffer_length
         config.group_size = args.group_size

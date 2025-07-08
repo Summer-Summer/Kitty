@@ -12,19 +12,16 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",
 ]
-dependencies = [
-    "torch==2.4.1",
-    "transformers==4.43.1", 
-    "accelerate",
-    "flash-attn"
-]
+
+[tool.setuptools.package-dir]
+"" = "src"
 
 [tool.setuptools.packages.find]
-exclude = ["scripts*", "examples*"]
+include = ["rock_kv*"]
+exclude = ["eval_scripts*", "docs*"]
 
-[tool.wheel]
-exclude = ["scripts*", "examples*"]
 
 [project.scripts]
-eval-channelkv = "rock_kv.cli.eval_rock_kv:main"
+eval_rock_kv = "rock_kv.cli.eval_rock_kv:main"
+gen_rock_kv = "rock_kv.cli.gen_rock_kv:main"
 

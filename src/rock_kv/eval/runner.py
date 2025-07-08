@@ -15,7 +15,10 @@ import time
 
 ########################################### Shared utility functions ###########################################
 def release_model_memory(model: PreTrainedModel):
+    from accelerate.hooks import remove_hook_from_submodules
+    remove_hook_from_submodules(model)
     model.to("cpu")
+    #
     del model
     gc.collect()
     torch.cuda.empty_cache()
@@ -96,7 +99,6 @@ def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[st
         print("Results saved to {}/{}_{}_{}.json".format(FileDir, ModelName, task, fileName_suffix))
 
 
-
 ########################################### Used by cli/gen_rock_kv.py ###########################################
 def visualize_kv_cache(kv, save_dir="kv_visualizations"):
     def visualize_kv_tensor(key, value, suffix="", cmap='viridis', save_dir=save_dir):
@@ -129,14 +131,14 @@ def visualize_kv_cache(kv, save_dir="kv_visualizations"):
         for head_ in range(h):
             visualize_kv_tensor(key[0, head_], value[0, head_], "magnitute")
 
-def test_model_generate(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, KV_Type: str, visualize_kv: bool= False):
+def test_model_generate(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, KV_Type: str, max_new_tokens=200, visualize_kv: bool= False):
     # Time consumption
     torch.cuda.synchronize()
     start_time = time.perf_counter()
     # Execution
     outputs = model.generate(
         input_ids=inputs.input_ids.cuda(),
-        max_new_tokens=200,
+        max_new_tokens=max_new_tokens, # max_new_tokens is the maximum number of new tokens to generate.
         return_dict_in_generate=True,
         do_sample=False, # llama3 enables sampling by default, but we need to disable it to evaluate the deterministic generation performance.
     )
