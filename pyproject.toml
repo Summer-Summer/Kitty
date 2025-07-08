@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rock-kv"
+version = "1.0.0"
+description = "An accurate 2/4 bit KV Cache quantization method for LLMs."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    "torch==2.4.1",
+    "transformers==4.43.1", 
+    "accelerate",
+    "flash-attn"
+]
+
+[tool.setuptools.packages.find]
+exclude = ["scripts*", "examples*"]
+
+[tool.wheel]
+exclude = ["scripts*", "examples*"]
+
+[project.scripts]
+eval-channelkv = "rock_kv.cli.eval_rock_kv:main"
+
