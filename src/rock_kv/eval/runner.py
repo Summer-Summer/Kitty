@@ -1,17 +1,16 @@
 """Utilities to run downstream evaluation for RoCK-KV models."""
 import torch
 from transformers import PreTrainedModel, AutoTokenizer
-import gc
+import lm_eval
 #
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os 
-#
-import lm_eval
-import json
-#
-import matplotlib.pyplot as plt
+import os
+import gc
 import time
+import json
+import matplotlib.pyplot as plt
+
 
 ########################################### Shared utility functions ###########################################
 def release_model_memory(model: PreTrainedModel):
@@ -23,10 +22,9 @@ def release_model_memory(model: PreTrainedModel):
     gc.collect()
     torch.cuda.empty_cache()
 
-
 ########################################### Used by cli/eval_rock_kv.py ###########################################
 @torch.no_grad()
-def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[str], ModelName, fileName_suffix, DEBUG=False):
+def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[str], ModelName, fileName, DEBUG=False):
     os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
     lm = lm_eval.models.huggingface.HFLM(model)
@@ -63,8 +61,12 @@ def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[st
         else:
             limit = None
 
-        eval_config = "eval_config: {}".format(fileName_suffix)
-        print("Evaluating task: ", task, " with num_fewshot: ", num_fewshot, eval_config)
+        print("Evaluating model accuracy on downstream tasks...")
+        print("ModelName: ", model_configs["ModelPath"])
+        print("Task: ", task)
+        print("Eval_Configs: ", fileName)
+        print("Num_Fewshot: ", num_fewshot)
+        #
         results = lm_eval.simple_evaluate(
             model=lm,
             tasks=[task],
@@ -86,17 +88,14 @@ def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[st
         output["eval_configs"]["model_dtype"] = str(model.dtype)
         output["samples"] = results["samples"] if "samples" in results else None
             
-        #FileDir = "./acc_results_random_chooseC"
-        #FileDir = "./acc_results_new"
-        #FileDir = "./acc_results_ChannelKV"
-        #FileDir = "./test"
-        FileDir = "./acc_ChannelKV_KIVIStype_FullDynamic"
-        if not os.path.exists(FileDir):
-            os.makedirs(FileDir)
         # Save results to file
-        with open("{}/{}_{}_{}.json".format(FileDir, ModelName, task, fileName_suffix), "w") as f:
+        FileDir = "./eval_results/{}/{}".format(ModelName, task)
+        if not os.path.exists(FileDir):
+            os.makedirs(FileDir, exist_ok=True)
+        FilePATH = "{}/{}.json".format(FileDir, fileName)
+        with open(FilePATH, "w") as f:
             json.dump(output, f, indent=4)
-        print("Results saved to {}/{}_{}_{}.json".format(FileDir, ModelName, task, fileName_suffix))
+        print("Results saved to:", FilePATH)
 
 
 ########################################### Used by cli/gen_rock_kv.py ###########################################

@@ -57,6 +57,7 @@ def main() -> None:
         device_map = infer_auto_device_map(model, no_split_module_classes=["LlamaDecoderLayer_RoCKKV"], max_memory={0: "75GB", 1: "78GB"})
         model = dispatch_model(model, device_map=device_map)
         outputs = test_model_generate(model, tokenizer, inputs, "RoCKKV", args.max_token_new, args.visualize_kv)
+        breakpoint()
         release_model_memory(model)
     else:
         raise ValueError("Please specify either --gen_hf or --gen_rock_kv to evaluate the model.")

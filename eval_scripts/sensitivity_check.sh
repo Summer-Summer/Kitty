@@ -1,6 +1,21 @@
 #!/bin/bash
+if [ "$#" -ne 3 ]; then
+  echo 'Usage:   ./sensitivity_check.sh <MODEL> <TASK_NAME> <GPUs>'
+  echo '<MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct"'
+  echo '<TASK_NAME>: "gsm8k_haojun" "minerva_math_algebra" "humaneval_haojun2" "gpqa_diamond_haojun" "mmlu_flan_cot_fewshot"'
+  echo '<GPUs>: "6,7" "0"'
+  exit 1
+fi
+MODEL=$1
+TASK_NAME=$2
+GPUs=$3
 
-source ./utils_channelkv.sh
+# 固定设置
+export TORCH_CUDA_ARCH_LIST="9.0"
+HF_HOME=/home/xhjustc/HF_HOME
+
+
+
 
 echo "===================================="
 echo "Evaluating MODEL: $MODEL"
@@ -8,42 +23,27 @@ echo "Running TASK: $TASK_NAME"
 echo "GPUs: $GPUs"
 echo "===================================="
 
-mkdir -p logs
+source ./utils.sh
 
-#run_baseline    32 0  "Sensitivity Check" 2   2
-#run_baseline    32 0  "Sensitivity Check" 4   2
-#run_baseline    32 0  "Sensitivity Check" 6   2
-#run_baseline    32 0  "Sensitivity Check" 8   2
-#run_baseline    32 0  "Sensitivity Check" 16  2
-#
-#run_baseline    32 0  "Sensitivity Check" 2   3
-#run_baseline    32 0  "Sensitivity Check" 4   3
-#run_baseline    32 0  "Sensitivity Check" 6   3
-#run_baseline    32 0  "Sensitivity Check" 8   3
-#run_baseline    32 0  "Sensitivity Check" 16  3
+# channel_selection:
+# (0)  for Random Selection;
+# (1)  Variance-based Channel Selection;
+# (2)  Magnitude-based Channel Selection;
+# (3)  RoPE-aware Channel Selection;
+#               label                   sink  channel_sel  kbits  vbits     promote_bit    $promote_ratio
+run_baseline    "Sensitivity Check"     32    0            4      4          8              0.1
+run_baseline    "Sensitivity Check"     32    1            4      4          8              0.1
+run_baseline    "Sensitivity Check"     32    2            4      4          8              0.1
+run_baseline    "Sensitivity Check"     32    3            4      4          8              0.1
 
-#run_baseline    32 0  "Sensitivity Check" 2   4
-#run_baseline    32 0  "Sensitivity Check" 4   4
-#run_baseline    32 0  "Sensitivity Check" 6   4
-#run_baseline    32 0  "Sensitivity Check" 8   4
-#run_baseline    32 0  "Sensitivity Check" 16  4
+Ks=(2 4 6 8 16)
+Vs=(2 3 4 8 16)
 
-#run_baseline    32 0  "Sensitivity Check" 2   6
-#run_baseline    32 0  "Sensitivity Check" 4   6
-#run_baseline    32 0  "Sensitivity Check" 6   6
-#run_baseline    32 0  "Sensitivity Check" 8   6
-#run_baseline    32 0  "Sensitivity Check" 16  6
+#for k in "${Ks[@]}"; do
+#  for v in "${Vs[@]}"; do
+#    echo "Running sensitivity check with k=$k, v=$v"
+#    run_baseline   32  0   "Sensitivity    Check"  $k  $v  8   0.0
+#  done
+#done
 
-run_baseline    32 0  "Sensitivity Check" 2   8
-run_baseline    32 0  "Sensitivity Check" 4   8
-run_baseline    32 0  "Sensitivity Check" 6   8
-run_baseline    32 0  "Sensitivity Check" 8   8
-run_baseline    32 0  "Sensitivity Check" 16  8
-
-#run_baseline    32 0  "Sensitivity Check" 2   16
-#run_baseline    32 0  "Sensitivity Check" 4   16
-#run_baseline    32 0  "Sensitivity Check" 6   16
-#run_baseline    32 0  "Sensitivity Check" 8   16
-#run_baseline    32 0  "Sensitivity Check" 16  16
-
-echo "All evaluations for $TASK_NAME completed."
+echo "Sensitivity checks for $TASK_NAME on $MODEL completed."

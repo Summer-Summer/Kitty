@@ -11,17 +11,11 @@ from transformers.models.llama.configuration_llama import *
 from transformers.models.llama.modeling_llama import *
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 
-
 # Import RoCK-KV specific modules
 from .utils_quant import build_promote_mask, fake_quant_groupwise_lastdim
 
 
-_CONFIG_FOR_DOC = "LlamaConfig"
-
-
 class LlamaAttention_RoCKKV(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
-
     def __init__(self, config: LlamaConfig, layer_idx: int):
         super().__init__()
         self.config = config
@@ -34,30 +28,24 @@ class LlamaAttention_RoCKKV(nn.Module):
         self.max_position_embeddings = config.max_position_embeddings
         self.rope_theta = config.rope_theta
         self.is_causal = True
-        #####################################################################################################################################
-        # KIVI
+        ########################################################## RoCK-KV Configs ##########################################################
         self.k_bits = config.k_bits
         self.v_bits = config.v_bits
         self.group_size = config.group_size
-        self.residual_length = config.buffer_length     # renamed to `buffer_length`
-        # RoCKKV
-        self.sink_length = config.sink_length
         self.buffer_length = config.buffer_length
+        self.sink_length = config.sink_length
         self.promote_ratio = config.promote_ratio
         self.promote_bit = config.promote_bit
         self.channel_selection = config.channel_selection
-        ####################################################### Experimental Features #########################################################
-        # Layerwise Configuration
+        ###################################################### Experimental Features #########################################################
+        # The behavior of Value Cache, set to True means BitDecoding, otherwise KIVI Style Value Cache
+        self.VCache_BitDecoding = False
+        # Layer-wise optimizations
         self.layer_idx = layer_idx
         assert layer_idx >= 0
         #if layer_idx < 5 or layer_idx > config.num_hidden_layers -1 - 5:
         #    self.k_bits = 16
         #    self.v_bits = 16
-
-        # The behavior of Value Cache, set to True means BitDecoding, otherwise KIVI Style Value Cache
-        self.VCache_BitDecoding = False
-        # Dynamic Promotion Mask
-        self.DynamicMask = True
         #####################################################################################################################################
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
@@ -125,13 +113,10 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
             )
             key_slices = self.k_proj.weight.split(key_value_slicing, dim=0)
             value_slices = self.v_proj.weight.split(key_value_slicing, dim=0)
-
             query_states = [F.linear(hidden_states, query_slices[i]) for i in range(self.config.pretraining_tp)]
             query_states = torch.cat(query_states, dim=-1)
-
             key_states = [F.linear(hidden_states, key_slices[i]) for i in range(self.config.pretraining_tp)]
             key_states = torch.cat(key_states, dim=-1)
-
             value_states = [F.linear(hidden_states, value_slices[i]) for i in range(self.config.pretraining_tp)]
             value_states = torch.cat(value_states, dim=-1)
         else:
@@ -149,12 +134,10 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
 
         cos, sin = self.rotary_emb(value_states, position_ids)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-
         ###################################################### Decoding Phase ######################################################
         if past_key_value is not None:                              
             key_states_fake = past_key_value[0]
             value_states_fake = past_key_value[1]
-            promote_mask = past_key_value[2]
             assert (key_states_fake is not None) and (value_states_fake is not None)
             # update kv cache
             key_states_fake = torch.cat([key_states_fake, key_states], dim=2)
@@ -191,23 +174,8 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
             num_tokens_kv_to_quantize = num_tokens_kv - self.sink_length - self.buffer_length
             if num_tokens_kv_to_quantize > 0 and (num_tokens_kv_to_quantize % self.buffer_length == 1):  # need to quantize
                 start_idx = - self.buffer_length - 1
-                if self.DynamicMask or (promote_mask is None):
-                    promote_mask = build_promote_mask(key_states_fake[:,:,   start_idx:-1, :].transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection)
-                else:
-                    if False: #self.layer_idx in [0, 1, 10]:  # Haojun: Debugging
-                        #breakpoint()
-                        promote_mask_new = build_promote_mask(key_states_fake[:,:,   start_idx:, :].transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection)
-                        overlap = promote_mask & promote_mask_new
-                        correct = overlap.sum()
-                        all = promote_mask_new.sum()
-                        print(f"Layer {self.layer_idx}")
-                        print(f"all: {all}, correct: {correct}")
-                        if all> 0:
-                            match_ratio = correct / all
-                            print(f"promote_mask overlap ratio: {match_ratio}")
-                        #print(promote_mask)
-                        #print(promote_mask_new)
                 # Quantize Key Cache
+                promote_mask = build_promote_mask(key_states_fake[:,:,   start_idx:-1, :].transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection)
                 key_states_fake[:,:,   start_idx:-1, :] = fake_quant_groupwise_lastdim(
                     key_states_fake[:,:,   start_idx:-1, :].transpose(2, 3).contiguous(),
                     self.group_size, self.k_bits,
@@ -260,8 +228,6 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
             if key_states.shape[-2] <= self.buffer_length:
                 key_states_full = key_states
                 value_states_full = value_states
-                #
-                promote_mask = None
             else:
                 # key_states.shape[-2] > self.buffer_length
                 num_tokens = key_states.shape[-2]
@@ -270,17 +236,14 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
                 # Quantize Key Cache
                 key_states_quant   = key_states[:, :, :num_token_to_quantize, :].contiguous()
                 key_states_full    = key_states[:, :, num_token_to_quantize:, :].contiguous()
-                if self.DynamicMask:
-                    num_to_quant = key_states_quant.shape[-2]
-                    assert num_to_quant > 0 and num_to_quant % self.buffer_length == 0, f"num_to_quant: {num_to_quant}, buffer_length: {self.buffer_length}"
-                    for i in range(0, num_to_quant, self.buffer_length):
-                        key_states_quant_slice = key_states_quant[:, :, i:i+self.buffer_length, :].transpose(2, 3).contiguous()
-                        promote_mask = build_promote_mask(key_states_quant_slice, self.promote_ratio, self.channel_selection)
-                        key_states_quant_slice = fake_quant_groupwise_lastdim(key_states_quant_slice, self.group_size, self.k_bits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
-                        key_states_quant[:, :, i:i+self.buffer_length, :] = key_states_quant_slice
-                else:
-                    promote_mask = build_promote_mask(key_states_quant.transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection)  # build promote_mask
-                    key_states_quant = fake_quant_groupwise_lastdim(key_states_quant.transpose(2, 3).contiguous(), self.group_size, self.k_bits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
+                #
+                num_to_quant = key_states_quant.shape[-2]
+                assert num_to_quant > 0 and num_to_quant % self.buffer_length == 0, f"num_to_quant: {num_to_quant}, buffer_length: {self.buffer_length}"
+                for i in range(0, num_to_quant, self.buffer_length):
+                    key_states_quant_slice = key_states_quant[:, :, i:i+self.buffer_length, :].transpose(2, 3).contiguous()
+                    promote_mask = build_promote_mask(key_states_quant_slice, self.promote_ratio, self.channel_selection)
+                    key_states_quant_slice = fake_quant_groupwise_lastdim(key_states_quant_slice, self.group_size, self.k_bits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
+                    key_states_quant[:, :, i:i+self.buffer_length, :] = key_states_quant_slice
                 key_states_full  = torch.cat([key_states_quant, key_states_full],   dim=2)
                 # Quantize Value Cache
                 if not self.VCache_BitDecoding:             # KIVI Style Value Cache
@@ -295,7 +258,7 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
             value_states_fake = torch.cat([value_states_sink, value_states_full], dim=2)
             
         #
-        past_key_value = (key_states_fake, value_states_fake, promote_mask, kv_seq_len) if use_cache else None
+        past_key_value = (key_states_fake, value_states_fake, kv_seq_len) if use_cache else None
 
         #
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
@@ -307,7 +270,6 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
             attn_output = self.o_proj(attn_output)
         attn_weights = None
         return attn_output, attn_weights, past_key_value
-
 
 
     def _flash_attention_forward(
@@ -364,6 +326,7 @@ class LlamaFlashAttention_RoCKKV(LlamaAttention_RoCKKV):
             )
 
         return attn_output
+
 
     def _upad_input(self, query_layer, key_layer, value_layer, attention_mask, query_length):
         indices_k, cu_seqlens_k, max_seqlen_in_batch_k = _get_unpad_data(attention_mask)
@@ -651,7 +614,7 @@ class LlamaForCausalLM_RoCKKV(LlamaPreTrainedModel):
         return self.model
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
+    @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class="LlamaConfig")
     def forward(
         self,
         input_ids: torch.LongTensor = None,

@@ -7,18 +7,27 @@ __all__ = [
     "fake_quant_groupwise_lastdim",
 ]
 
+
+# ToDo: Support batch size > 1, promote_mask  : (B, nh, D) bool
 def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_selection: int) -> torch.BoolTensor:
     """
     Generating a mask to select channels based on importance scores.
     args:
         key_states : (B, nh, D, T),     key cache after RoPE but before quantization
-        promote_ratio : float,             the ratio of channels to promote, in [0, 1]
+        promote_ratio : float,          the ratio of channels to promote, in [0, 1]
+        channel_selection : int,        channel selection strategy
+                                        (-1) for Unspecified, raise an error;
+                                        (0)  for Random Selection;
+                                        (1)  Variance-based Channel Selection;
+                                        (2)  Magnitude-based Channel Selection;
+                                        (3)  RoPE-aware Channel Selection;
     returns:
         promote_mask  : (nh, D) bool,      promote_mask[i][j] == True -> j-th channel of i-th head is selected for promotion
     """
     assert key_states.dim() == 4
     _, nh, D, _ = key_states.shape
-    assert 0. <= promote_ratio <= 1.
+    assert D % 2 == 0, "RoPE-aware requires even D"
+    assert 0. <= promote_ratio <= 1.0, f"promote_ratio must be in [0, 1], got {promote_ratio}"
     # corner cases
     k_chan = int(D * promote_ratio + 1e-6)  # number of channels to promote
     if k_chan % 2 != 0:  # ensure k_chan is even
@@ -29,122 +38,34 @@ def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_s
         return torch.ones((nh, D), dtype=torch.bool, device=key_states.device)
     promote_mask = torch.zeros((nh, D), dtype=torch.bool, device=key_states.device)
     ##############################################channel selection strategies###############################################
-    assert channel_selection in (-1, 0, 1, 2), f"Invalid channel_selection strategy: {channel_selection}"
-    if channel_selection == -1:                                                                   # (-1) Entropy-based Channel Selection
-        Amplitude = (key_states[:, :, :D//2, :].pow(2) + key_states[:, :, D//2:, :].pow(2))  
-        Amplitude = Amplitude.sqrt()        # (B, nh, D//2, T)
-        #
-        p = Amplitude / (Amplitude.sum(-1, keepdim=True) + 1e-6)              # (B, nh, D/2, T)
-        entropy = -(p * p.clamp_min(1e-9).log()).sum(-1)          # (B, nh, D/2)
-        entropy = entropy.mean((0))                               # → (nh, D/2)
-        #
-        Amplitude = Amplitude.mean(dim=-1)  # (B, nh, D//2)
-        Amplitude = Amplitude.mean(dim=0)   # (nh, D//2)
-        #score = Amplitude / math.sqrt(2)    # (nh, D//2)
-        score = Amplitude / (entropy + 1e-6)
-        #
-        k_pair = k_chan // 2                # number of channel pairs to promote
-        _, top_pair_idx = score.topk(k_pair, dim=-1)  # (nh, k_pair)
-        for i in range(nh):
-            idx0 = top_pair_idx[i]                       # (k_pair,)
-            idx1 = idx0 + D // 2                         # shift
-            promote_mask[i].scatter_(0, idx0, True)
-            promote_mask[i].scatter_(0, idx1, True)
-    elif channel_selection == 0:                                                                   # (0) Clipped RoPE-Aware Channel Selection
-        Amplitude = (key_states[:, :, :D//2, :].pow(2) + key_states[:, :, D//2:, :].pow(2))  
-        Amplitude = Amplitude.sqrt()        # (B, nh, D//2, T)
-        #
-        Quantiles = Amplitude.to(torch.float32).quantile(0.95, dim=-1, keepdim=True)  # (B, nh, D//2, 1)
-        Amplitude = torch.minimum(Amplitude, Quantiles)
-        #
-        Amplitude = Amplitude.mean(dim=-1)  # (B, nh, D//2)
-        Amplitude = Amplitude.mean(dim=0)   # (nh, D//2)
-        #score = Amplitude / math.sqrt(2)    # (nh, D//2)
-        score = Amplitude
-        #
-        k_pair = k_chan // 2                # number of channel pairs to promote
-        _, top_pair_idx = score.topk(k_pair, dim=-1)  # (nh, k_pair)
-        for i in range(nh):
-            idx0 = top_pair_idx[i]                       # (k_pair,)
-            idx1 = idx0 + D // 2                         # shift
-            promote_mask[i].scatter_(0, idx0, True)
-            promote_mask[i].scatter_(0, idx1, True)
-    elif channel_selection == 1:                                                                   # (1) Vanila Strategy: Independent Channel Selection
-        diff = key_states - key_states.mean(dim=-1, keepdim=True)
-        score = diff.pow(2).sum(dim=-1)  # (B, nh, D)
-        score = score.mean(dim=0)   # score: (B, nh, D) → (nh, D)
-        _, top_idx = score.topk(k_chan, dim=-1)
-        promote_mask.scatter_(-1, top_idx, True)   # True → promote channel
-    elif channel_selection == 2:                                                                   # (2) Our Strategy: RoPE-Aware Channel Selection
-        Amplitude = (key_states[:, :, :D//2, :].pow(2) + key_states[:, :, D//2:, :].pow(2))  
-        Amplitude = Amplitude.sqrt()        # (B, nh, D//2, T)
-        Amplitude = Amplitude.mean(dim=-1)  # (B, nh, D//2)
-        Amplitude = Amplitude.mean(dim=0)   # (nh, D//2)
-        #score = Amplitude / math.sqrt(2)    # (nh, D//2)
-        score = Amplitude
-        #
-        k_pair = k_chan // 2                # number of channel pairs to promote
-        _, top_pair_idx = score.topk(k_pair, dim=-1)  # (nh, k_pair)
-        for i in range(nh):
-            idx0 = top_pair_idx[i]                       # (k_pair,)
-            idx1 = idx0 + D // 2                         # shift
-            promote_mask[i].scatter_(0, idx0, True)
-            promote_mask[i].scatter_(0, idx1, True)
-    ########################################################################################################################
-    else:
-        raise ValueError(f"Invalid channel_selection strategy: {channel_selection}")
-    #
-    return promote_mask
-
-
-def build_promote_mask_backup(key_states: torch.Tensor, promote_ratio: float, channel_selection: int) -> torch.BoolTensor:
-    """
-    Generating a mask to select channels based on importance scores.
-    args:
-        key_states : (B, nh, D, T),     key cache after RoPE but before quantization
-        promote_ratio : float,             the ratio of channels to promote, in [0, 1]
-    returns:
-        promote_mask  : (nh, D) bool,      promote_mask[i][j] == True -> j-th channel of i-th head is selected for promotion
-    """
-    assert key_states.dim() == 4
-    _, nh, D, _ = key_states.shape
-    assert 0. <= promote_ratio <= 1.
-    # corner cases
-    k_chan = int(D * promote_ratio + 1e-6)  # number of channels to promote
-    if k_chan % 2 != 0:  # ensure k_chan is even
-        k_chan += 1
-    if k_chan == 0:  # promote no channel
-        return torch.zeros((nh, D), dtype=torch.bool, device=key_states.device)
-    if k_chan >= D:  # promote all
-        return torch.ones((nh, D), dtype=torch.bool, device=key_states.device)
-    promote_mask = torch.zeros((nh, D), dtype=torch.bool, device=key_states.device)
-    ##############################################channel selection strategies###############################################
-    assert channel_selection in (-1, 0, 1, 2), f"Invalid channel_selection strategy: {channel_selection}"
-    if channel_selection == -1:
+    assert channel_selection in (-1, 0, 1, 2, 3), f"Invalid channel_selection strategy: {channel_selection}"
+    if channel_selection == -1:                                                             # (-1) for Unspecified, raise an error;
         assert False, "channel_selection strategy is not set."
-    elif channel_selection == 0:                                                                   # (0) Random selection
+    elif channel_selection == 0:                                                            # (0)  for Random Selection;
         for i in range(nh):
             rand_idx = torch.randperm(D, device=key_states.device)[:k_chan]
             promote_mask[i, rand_idx] = True
-    elif channel_selection == 1:                                                                   # (1) Vanila Strategy: Independent Channel Selection
+    elif channel_selection == 1:                                                            # (1)  Variance-based Channel Selection
         diff = key_states - key_states.mean(dim=-1, keepdim=True)
-        score = diff.pow(2).sum(dim=-1)  # (B, nh, D)
-        score = score.mean(dim=0)   # score: (B, nh, D) → (nh, D)
+        score = diff.pow(2).mean(dim=-1).mean(dim=0)  # (B, nh, D, T) → (B, nh, D) → (nh, D)
         _, top_idx = score.topk(k_chan, dim=-1)
         promote_mask.scatter_(-1, top_idx, True)   # True → promote channel
-    elif channel_selection == 2:                                                                   # (2) Our Strategy: RoPE-Aware Channel Selection
+    elif channel_selection == 2:                                                            # (2)  Magnitude-based Channel Selection
+        score = key_states.abs()
+        score = score.mean(dim=-1).mean(dim=0)  # (B, nh, D, T) → (B, nh, D) → (nh, D)
+        _, top_idx = score.topk(k_chan, dim=-1)
+        promote_mask.scatter_(-1, top_idx, True)   # True → promote channel
+    elif channel_selection == 3:                                                            # (3)  RoPE-aware Channel Selection
         Amplitude = (key_states[:, :, :D//2, :].pow(2) + key_states[:, :, D//2:, :].pow(2))  
         Amplitude = Amplitude.sqrt()        # (B, nh, D//2, T)
         Amplitude = Amplitude.mean(dim=-1)  # (B, nh, D//2)
-        Amplitude = Amplitude.mean(dim=0)   # (nh, D//2)
-        #score = Amplitude / math.sqrt(2)    # (nh, D//2)
-        score = Amplitude
+        score = Amplitude.mean(dim=0)       # (nh, D//2)
         #
-        k_pair = k_chan // 2                # number of channel pairs to promote
-        _, top_pair_idx = score.topk(k_pair, dim=-1)  # (nh, k_pair)
+        k_pair = k_chan // 2                            # number of channel pairs to promote
+        _, top_pair_idx = score.topk(k_pair, dim=-1)    # (nh, k_pair)
         for i in range(nh):
-            idx0 = top_pair_idx[i]                       # (k_pair,)
-            idx1 = idx0 + D // 2                         # shift
+            idx0 = top_pair_idx[i]                      # (k_pair,)
+            idx1 = idx0 + D // 2                        # shift
             promote_mask[i].scatter_(0, idx0, True)
             promote_mask[i].scatter_(0, idx1, True)
     ########################################################################################################################
@@ -152,6 +73,7 @@ def build_promote_mask_backup(key_states: torch.Tensor, promote_ratio: float, ch
         raise ValueError(f"Invalid channel_selection strategy: {channel_selection}")
     #
     return promote_mask
+
 
 
 def fake_quant_groupwise_lastdim(
