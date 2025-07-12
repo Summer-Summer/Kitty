@@ -3,6 +3,10 @@
 RoCK-KV: RoPE-aware Channel KV Quantization
 """
 
-from .models.llama_rock_kv import LlamaForCausalLM_RoCKKV
+from .llama_rock_kv import RoCKKVCacheConfig
+from .llama_rock_kv import RoCKKVCache
 
-__all__ = ["LlamaForCausalLM_RoCKKV"]
+__ALL__ = [
+    "RoCKKVCacheConfig",
+    "RoCKKVCache",
+]

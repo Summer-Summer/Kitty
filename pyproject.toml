@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "rock-kv"
 version = "1.0.0"
 description = "An accurate 2/4 bit KV Cache quantization method for LLMs."
+authors = [
+    { name = "Haojun Xia",   email = "xhjustc@gmail.com" }
+]
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [

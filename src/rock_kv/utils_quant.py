@@ -1,6 +1,5 @@
 import torch
 from typing import Optional
-import math
 
 __all__ = [
     "build_promote_mask",
@@ -81,7 +80,7 @@ def fake_quant_groupwise_lastdim(
         group_size: int,
         bit: int,
         promote_mask: Optional[torch.Tensor] = None,
-        promote_bit: Optional[int] = 4,
+        promote_bit: int = 4,
 ) -> torch.Tensor:
     """
     Simulate the numerical effect of group-wise quantization along the last dim.

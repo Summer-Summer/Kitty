@@ -31,6 +31,9 @@ source ./utils.sh
 # (2)  Magnitude-based Channel Selection;
 # (3)  RoPE-aware Channel Selection;
 #               label                     sink  channel_sel  kbits  vbits  promote_bit
-run_experiment  "Accuracy_Across_Ratios"  32    0            4      4      8
+run_experiment  "Accuracy_Across_Ratios"  32    3            2      2      4
+run_experiment  "Accuracy_Across_Ratios"  32    2            2      2      4
+run_experiment  "Accuracy_Across_Ratios"  32    1            2      2      4
+run_experiment  "Accuracy_Across_Ratios"  32    0            2      2      4
 
 echo "Accuracy Evaluations for $TASK_NAME on $MODEL completed."

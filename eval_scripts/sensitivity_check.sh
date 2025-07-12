@@ -31,19 +31,19 @@ source ./utils.sh
 # (2)  Magnitude-based Channel Selection;
 # (3)  RoPE-aware Channel Selection;
 #               label                   sink  channel_sel  kbits  vbits     promote_bit    $promote_ratio
-run_baseline    "Sensitivity Check"     32    0            4      4          8              0.1
-run_baseline    "Sensitivity Check"     32    1            4      4          8              0.1
-run_baseline    "Sensitivity Check"     32    2            4      4          8              0.1
-run_baseline    "Sensitivity Check"     32    3            4      4          8              0.1
+#run_baseline    "Sensitivity Check"     32    0            4      4          8              0.1
+#run_baseline    "Sensitivity Check"     32    1            4      4          8              0.1
+#run_baseline    "Sensitivity Check"     32    2            4      4          8              0.1
+#run_baseline    "Sensitivity Check"     32    3            4      4          8              0.1
 
 Ks=(2 4 6 8 16)
 Vs=(2 3 4 8 16)
 
-#for k in "${Ks[@]}"; do
-#  for v in "${Vs[@]}"; do
-#    echo "Running sensitivity check with k=$k, v=$v"
-#    run_baseline   32  0   "Sensitivity    Check"  $k  $v  8   0.0
-#  done
-#done
+for k in "${Ks[@]}"; do
+  for v in "${Vs[@]}"; do
+    echo "Running sensitivity check with k=$k, v=$v"
+    run_baseline   "Sensitivity Check"  32  0     $k  $v  8   0.0
+  done
+done
 
 echo "Sensitivity checks for $TASK_NAME on $MODEL completed."

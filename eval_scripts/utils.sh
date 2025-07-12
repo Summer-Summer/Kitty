@@ -28,7 +28,6 @@ run_experiment () {
       --promote_ratio $PROMOTE_RATIO \
       --promote_bit $promote_bit \
       --channel_selection $channel \
-      --debug \
       > eval_logs/${GPUs//,/}.log 2>&1 &
     wait
   done
@@ -44,7 +43,7 @@ run_baseline () {
   local promote_bit=$6
   local promote_ratio=$7
   echo "Launching $TASK_NAME on GPUs $GPUs"
-  echo "label=$label, sink=$sink, channel_sel=$channel, k=$kbits, v=$vbits, promote_bit=$promote_bit, promote_ratio=0$promote_ratio"
+  echo "label=$label, sink=$sink, channel_sel=$channel, k=$kbits, v=$vbits, promote_bit=$promote_bit, promote_ratio=$promote_ratio"
   mkdir -p eval_logs
 
   CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
@@ -59,7 +58,6 @@ run_baseline () {
       --promote_ratio $promote_ratio \
       --promote_bit $promote_bit \
       --channel_selection $channel \
-      --debug \
       > eval_logs/${GPUs//,/}.log 2>&1 &
   wait
 }

@@ -1,8 +1,7 @@
 import torch
-from transformers import LlamaConfig, AutoTokenizer, PreTrainedModel, AutoModelForCausalLM
-from accelerate import infer_auto_device_map, dispatch_model
+from transformers import AutoTokenizer, AutoModelForCausalLM
 #
-from rock_kv.models.llama_rock_kv import LlamaForCausalLM_RoCKKV
+from rock_kv import RoCKKVCacheConfig, RoCKKVCache
 from rock_kv.eval.runner import release_model_memory, test_model_generate
 from .utils_cli import update_parser
 
@@ -38,29 +37,28 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     inputs = tokenizer(text=prompt, return_tensors="pt")
     #
+    if args.gen_rock_kv:
+        rockkv_config = RoCKKVCacheConfig(
+            sink_length=args.sink_length,
+            buffer_length=args.buffer_length,
+            group_size=args.group_size,
+            k_bits=args.kbits,
+            v_bits=args.vbits,
+            promote_ratio=args.promote_ratio,
+            promote_bit=args.promote_bit,
+            channel_selection=args.channel_selection
+            VCache_BitDecoding=False,  # Using KIVI Style V Cache
+        )  
+        #
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16, device_map='auto', cache_config=rockkv_config)
+        outputs = test_model_generate(model, tokenizer, inputs, "RoCKKV", args.max_token_new, args.visualize_kv)
+        breakpoint()
+        release_model_memory(model)
+
     if args.gen_hf:
         model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16, device_map='auto')
         outputs_hf = test_model_generate(model, tokenizer, inputs, "HF", args.max_token_new, args.visualize_kv)
         release_model_memory(model)
-    elif args.gen_rock_kv:
-        config = LlamaConfig.from_pretrained(args.model)
-        config.sink_length = args.sink_length
-        config.buffer_length = args.buffer_length
-        config.group_size = args.group_size
-        config.k_bits = args.kbits
-        config.v_bits = args.vbits
-        config.promote_ratio = args.promote_ratio
-        config.promote_bit = args.promote_bit
-        config.channel_selection = args.channel_selection
-        #
-        model = LlamaForCausalLM_RoCKKV.from_pretrained(args.model, config=config, torch_dtype=torch.float16)
-        device_map = infer_auto_device_map(model, no_split_module_classes=["LlamaDecoderLayer_RoCKKV"], max_memory={0: "75GB", 1: "78GB"})
-        model = dispatch_model(model, device_map=device_map)
-        outputs = test_model_generate(model, tokenizer, inputs, "RoCKKV", args.max_token_new, args.visualize_kv)
-        breakpoint()
-        release_model_memory(model)
-    else:
-        raise ValueError("Please specify either --gen_hf or --gen_rock_kv to evaluate the model.")
 
 if __name__ == "__main__":
     main()
