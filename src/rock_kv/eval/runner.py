@@ -10,7 +10,18 @@ import gc
 import time
 import json
 import matplotlib.pyplot as plt
+#
+from typing import Optional
+from rock_kv import RoCKKVCache
 
+
+#
+def GetRoCKKVCache():
+    """
+    Get the RoCKKVCache class.
+    """
+    from rock_kv.llama_rock_kv import RoCKKVCache
+    return RoCKKVCache
 
 ########################################### Shared utility functions ###########################################
 def release_model_memory(model: PreTrainedModel):
@@ -24,10 +35,11 @@ def release_model_memory(model: PreTrainedModel):
 
 ########################################### Used by cli/eval_rock_kv.py ###########################################
 @torch.no_grad()
-def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[str], ModelName, fileName, DEBUG=False):
+def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[str], ModelName, fileName, DEBUG=False, kv_cache: Optional[RoCKKVCache] = None):
     os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
-    lm = lm_eval.models.huggingface.HFLM(model)
+    from lm_eval.models.huggingface import HFLM
+    lm = HFLM(model)
 
     model_configs = {}
     model_configs["ModelArch"] = model.__class__.__name__
@@ -77,7 +89,13 @@ def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[st
             verbosity="ERROR",
             #batch_size='auto',
             batch_size=1,
-            cache_requests=False)
+            cache_requests=False,
+            gen_kwargs={
+                "max_new_tokens": 1024,  # Maximum number of new tokens to generate
+                "do_sample": False,    # Disable sampling for deterministic evaluation
+                "past_key_values": kv_cache,  # Use RoCKKV cache if provided
+            }
+        )
 
         output = {}
         au_tz = ZoneInfo("Australia/Sydney")
@@ -85,9 +103,23 @@ def eval_model_downstream(model: PreTrainedModel, downstream_tasks_list: list[st
         output["tasks"] = results['results']
         output["model_configs"] = model_configs
         output["eval_configs"] = results["config"]
+        # 
         output["eval_configs"]["model_dtype"] = str(model.dtype)
-        output["samples"] = results["samples"] if "samples" in results else None
-            
+        if output["eval_configs"]["gen_kwargs"]["past_key_values"] is not None:
+            output["eval_configs"]["gen_kwargs"]["past_key_values"] = output["eval_configs"]["gen_kwargs"]["past_key_values"].cache_implementation
+        #
+        if "samples" in results:
+            _, first_task_samples = next(iter(results["samples"].items()))
+            first_task_sample = first_task_samples[0]
+            arguments_from_samples = first_task_sample["arguments"][0][1]
+            if arguments_from_samples["past_key_values"] is not None:
+                arguments_from_samples["past_key_values"] = arguments_from_samples["past_key_values"].cache_implementation
+            output["eval_configs"]["arguments_from_samples"] = arguments_from_samples
+            #
+            for task_name, task_samples in results["samples"].items():
+                for sample in task_samples:
+                    sample["arguments"] = sample["arguments"][0][0]
+            output["samples"] = results["samples"]
         # Save results to file
         FileDir = "./eval_results/{}/{}".format(ModelName, task)
         if not os.path.exists(FileDir):
@@ -130,7 +162,7 @@ def visualize_kv_cache(kv, save_dir="kv_visualizations"):
         for head_ in range(h):
             visualize_kv_tensor(key[0, head_], value[0, head_], "magnitute")
 
-def test_model_generate(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, KV_Type: str, max_new_tokens=200, visualize_kv: bool= False):
+def test_model_generate(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, KV_Type: str, max_new_tokens=200, visualize_kv: bool= False, kv_cache: Optional[RoCKKVCache] = None):
     # Time consumption
     torch.cuda.synchronize()
     start_time = time.perf_counter()
@@ -139,6 +171,7 @@ def test_model_generate(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs
         input_ids=inputs.input_ids.cuda(),
         max_new_tokens=max_new_tokens, # max_new_tokens is the maximum number of new tokens to generate.
         return_dict_in_generate=True,
+        past_key_values=kv_cache,
         do_sample=False, # llama3 enables sampling by default, but we need to disable it to evaluate the deterministic generation performance.
     )
     # Time consumption

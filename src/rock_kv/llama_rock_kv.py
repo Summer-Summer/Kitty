@@ -1,5 +1,5 @@
 import torch
-from typing import Optional
+from typing import Optional, Any
 from dataclasses import dataclass
 
 from transformers.cache_utils import CacheConfig, DynamicCache
@@ -21,19 +21,19 @@ class RoCKKVCacheConfig(CacheConfig):
         sink_length: int = 32,
         buffer_length: int = 128,
         group_size: int = 128,
-        k_bits: int = 2,
-        v_bits: int = 2,
+        kbits: int = 2,
+        vbits: int = 2,
         promote_ratio: float = 0.1,
         promote_bit: int = 4,
         channel_selection: int = 3,               # -1: Unspecified, 0: Random, 1: Variance-based, 2: Magnitude-based, 3: RoPE-aware
         VCache_BitDecoding: bool = False,         # The behavior of Value Cache, set to True means BitDecoding, otherwise KIVI Style Value Cache
     ):
-        super().__init__()
+        super().__init__("rock_kv")
         self.sink_length = sink_length
         self.buffer_length = buffer_length
         self.group_size = group_size
-        self.k_bits = k_bits
-        self.v_bits = v_bits
+        self.kbits = kbits
+        self.vbits = vbits
         self.promote_ratio = promote_ratio
         self.promote_bit = promote_bit
         self.channel_selection = channel_selection
@@ -70,18 +70,22 @@ class RoCKKVCache(DynamicCache):
     [batch_size, num_heads, seq_len, head_dim]
     """
 
-    def __init__(self, cache_config: RoCKKVConfig) -> None:
+    def __init__(self, cache_config: RoCKKVCacheConfig) -> None:
         super().__init__()
         # Initialize RoCK-KV specific configurations
         self.sink_length = cache_config.sink_length
         self.buffer_length = cache_config.buffer_length
         self.group_size = cache_config.group_size
-        self.kbits = cache_config.k_bits
-        self.vbits = cache_config.v_bits
+        self.kbits = cache_config.kbits
+        self.vbits = cache_config.vbits
         self.promote_ratio = cache_config.promote_ratio
         self.promote_bit = cache_config.promote_bit
         self.channel_selection = cache_config.channel_selection
         self.VCache_BitDecoding = cache_config.VCache_BitDecoding
+        #
+        print("RoCKKV KV Cache is enabled!")
+        self.cache_implementation = cache_config.cache_implementation
+
         # Used only for QuantCache where the seq-length can't be inferred easily from cache contents
         #self._seen_tokens = 0
         #self._quantized_key_cache: list[torch.Tensor] = []
@@ -136,7 +140,7 @@ class RoCKKVCache(DynamicCache):
                 for i in range(0, num_to_quant, self.buffer_length):
                     key_states_quant_slice = key_states_quant[:, :, i:i+self.buffer_length, :].transpose(2, 3).contiguous()
                     promote_mask = build_promote_mask(key_states_quant_slice, self.promote_ratio, self.channel_selection)
-                    key_states_quant_slice = fake_quant_groupwise_lastdim(key_states_quant_slice, self.group_size, self.k_bits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
+                    key_states_quant_slice = fake_quant_groupwise_lastdim(key_states_quant_slice, self.group_size, self.kbits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
                     key_states_quant[:, :, i:i+self.buffer_length, :] = key_states_quant_slice
                 key_states_full  = torch.cat([key_states_quant, key_states_full],   dim=2)
                 # Quantize Value Cache
@@ -144,7 +148,7 @@ class RoCKKVCache(DynamicCache):
                     num_token_to_quantize = num_tokens - self.buffer_length
                 value_states_quant = value_states[:, :, :num_token_to_quantize, :].contiguous()
                 value_states_full  = value_states[:, :, num_token_to_quantize:, :].contiguous()
-                value_states_quant = fake_quant_groupwise_lastdim(value_states_quant, self.group_size, self.v_bits)
+                value_states_quant = fake_quant_groupwise_lastdim(value_states_quant, self.group_size, self.vbits)
                 value_states_full = torch.cat([value_states_quant, value_states_full], dim=2)
 
             # Updating KV Cache
@@ -163,28 +167,39 @@ class RoCKKVCache(DynamicCache):
             keys_to_return = torch.cat(keys_to_return, dim=-2)
             values_to_return = torch.cat(values_to_return, dim=-2)
 
+            #self.key_cache[layer_idx] = keys_to_return
+            #self.value_cache[layer_idx] = values_to_return
+            #return keys_to_return, values_to_return
+
             # quantize
             num_tokens_kv = keys_to_return.shape[-2]
             assert num_tokens_kv == keys_to_return.shape[-2]
             num_tokens_kv_to_quantize = num_tokens_kv - self.sink_length - self.buffer_length
             if num_tokens_kv_to_quantize > 0 and (num_tokens_kv_to_quantize % self.buffer_length == 1):  # need to quantize
-                start_idx = - self.buffer_length - 1
                 # Quantize Key Cache
                 promote_mask = build_promote_mask(keys_to_return[:, :, -self.buffer_length-1:-1, :].transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection)
                 newly_quantized_key = fake_quant_groupwise_lastdim(
                     keys_to_return[:, :, -self.buffer_length-1:-1, :].transpose(2, 3).contiguous(),
-                    self.group_size, self.k_bits,
+                    self.group_size, self.kbits,
                     promote_mask, self.promote_bit).transpose(2, 3).contiguous()
-                self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx][:,:,:-self.buffer_length,:], newly_quantized_key, key_states], dim=-2)
+                #self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx][:,:,:-self.buffer_length,:], newly_quantized_key, key_states], dim=-2)
+                self.key_cache[layer_idx] = torch.cat([keys_to_return[:,:,:-self.buffer_length-1,:], newly_quantized_key, key_states], dim=-2)
                 # Quantize Value Cache (BitDecoding)
                 if self.VCache_BitDecoding:
-                    newly_quantized_value = fake_quant_groupwise_lastdim(values_to_return[:, :, -self.buffer_length-1:-1, :], self.group_size, self.v_bits)
+                    newly_quantized_value = fake_quant_groupwise_lastdim(values_to_return[:, :, -self.buffer_length-1:-1, :], self.group_size, self.vbits)
                     self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx][:,:,:-self.buffer_length,:], newly_quantized_value, value_states], dim=-2) # -self.buffer_length
+            else:
+                self.key_cache[layer_idx] = keys_to_return
+                if self.VCache_BitDecoding:
+                    self.value_cache[layer_idx] = values_to_return
             # Quantize Value Cache (KIVI Style Value Cache, quantizing a Token each Decoding Step)   
             if not self.VCache_BitDecoding:
                 if num_tokens_kv_to_quantize > 0:
-                    newly_quantized_value = fake_quant_groupwise_lastdim(values_to_return[:,:, -self.buffer_length-1:-self.buffer_length, :], self.group_size, self.v_bits)
-                    self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx][:,:,:-self.buffer_length,:], newly_quantized_value, value_states], dim=-2) # -self.buffer_length
+                    newly_quantized_value = fake_quant_groupwise_lastdim(values_to_return[:,:, -self.buffer_length-1:-self.buffer_length, :], self.group_size, self.vbits)
+                    #self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx][:,:,:-self.buffer_length,:], newly_quantized_value, value_states], dim=-2) # -self.buffer_length
+                    self.value_cache[layer_idx] = torch.cat([values_to_return[:,:,:-self.buffer_length-1,:], newly_quantized_value, values_to_return[:,:,-self.buffer_length:,:]], dim=-2) # -self.buffer_length
+                else:
+                    self.value_cache[layer_idx] = values_to_return
         ####################################################################################################################
         return keys_to_return, values_to_return
 
