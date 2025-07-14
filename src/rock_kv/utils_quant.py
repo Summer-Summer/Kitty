@@ -1,3 +1,5 @@
+# Author: Haojun Xia (xhjustc@gmail.com)
+
 import torch
 from typing import Optional
 
@@ -37,7 +39,6 @@ def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_s
         return torch.ones((nh, D), dtype=torch.bool, device=key_states.device)
     promote_mask = torch.zeros((nh, D), dtype=torch.bool, device=key_states.device)
     ##############################################channel selection strategies###############################################
-    assert channel_selection in (-1, 0, 1, 2, 3), f"Invalid channel_selection strategy: {channel_selection}"
     if channel_selection == -1:                                                             # (-1) for Unspecified, raise an error;
         assert False, "channel_selection strategy is not set."
     elif channel_selection == 0:                                                            # (0)  for Random Selection;

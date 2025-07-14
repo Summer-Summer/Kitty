@@ -36,13 +36,14 @@ source ./utils.sh
 #run_baseline    "Sensitivity Check"     32    2            4      4          8              0.1
 #run_baseline    "Sensitivity Check"     32    3            4      4          8              0.1
 
-Ks=(2 4 6 8 16)
-Vs=(2 3 4 8 16)
+Ks=(2 3 4 8 16)
+Vs=(2 3 4 5 6 8 16)
+Ks=(16)
 
 for k in "${Ks[@]}"; do
   for v in "${Vs[@]}"; do
     echo "Running sensitivity check with k=$k, v=$v"
-    run_baseline   "Sensitivity Check"  32  0     $k  $v  8   0.0
+    run_baseline   "Sensitivity Check"  32  0     $k  $v  16   0.0
   done
 done
 

@@ -1,7 +1,11 @@
-import torch
+# Inspired by https://github.com/huggingface/transformers/blob/main/src/transformers/cache_utils.py.
+# Author: Haojun Xia (xhjustc@gmail.com)
+
 from typing import Optional, Any
 from dataclasses import dataclass
+import argparse
 
+import torch
 from transformers.cache_utils import CacheConfig, DynamicCache
 
 from .utils_quant import build_promote_mask, fake_quant_groupwise_lastdim
@@ -63,6 +67,70 @@ class RoCKKVCacheConfig(CacheConfig):
                     found_value=self.buffer_length,
                 ),
             )
+        if self.sink_length < 0:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="sink_length",
+                    correct_value="larger than 0",
+                    found_value=self.sink_length,
+                ),
+            )
+        if self.group_size <= 0:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="group_size",
+                    correct_value="larger than 0",
+                    found_value=self.group_size,
+                ),
+            )
+        if self.kbits < 1 or self.kbits > 16:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="kbits",
+                    correct_value="1 to 16",
+                    found_value=self.kbits,
+                ),
+            )
+        if self.vbits < 1 or self.vbits > 16:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="vbits",
+                    correct_value="1 to 16",
+                    found_value=self.vbits,
+                ),
+            )
+        if self.promote_ratio < 0.0 or self.promote_ratio > 1.0:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="promote_ratio",
+                    correct_value="between 0.0 and 1.0",
+                    found_value=self.promote_ratio,
+                ),
+            )
+        if self.promote_bit < self.kbits or self.promote_bit > 16:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="promote_bit",
+                    correct_value=f"between {self.kbits} and 16",
+                    found_value=self.promote_bit,
+                ),
+            )
+        if self.VCache_BitDecoding not in [False]:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="VCache_BitDecoding",
+                    correct_value="False",
+                    found_value=self.VCache_BitDecoding,
+                ),
+            )
+        if self.group_size > self.buffer_length or self.buffer_length % self.group_size != 0:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="group_size",
+                    correct_value="a factor of buffer_length ({})".format(self.buffer_length),
+                    found_value=self.group_size,
+                ),
+            )
         
 class RoCKKVCache(DynamicCache):
     """
@@ -82,8 +150,6 @@ class RoCKKVCache(DynamicCache):
         self.promote_bit = cache_config.promote_bit
         self.channel_selection = cache_config.channel_selection
         self.VCache_BitDecoding = cache_config.VCache_BitDecoding
-        #
-        print("RoCKKV KV Cache is enabled!")
         self.cache_implementation = cache_config.cache_implementation
 
         # Used only for QuantCache where the seq-length can't be inferred easily from cache contents
@@ -91,6 +157,7 @@ class RoCKKVCache(DynamicCache):
         #self._quantized_key_cache: list[torch.Tensor] = []
         #self._quantized_value_cache: list[torch.Tensor] = []
 
+    # To Do: support prefill length smaller than sink_length
     def update(
         self,
         key_states: torch.Tensor,
@@ -109,19 +176,17 @@ class RoCKKVCache(DynamicCache):
             #self._quantized_key_cache.append(self._quantize(key_states.contiguous(), axis=self.axis_key))
             #self._quantized_value_cache.append(self._quantize(value_states.contiguous(), axis=self.axis_value))
             keys_to_return, values_to_return = key_states, value_states
+
             # Initialize the key and value caches for the layer
             self.key_cache.append(torch.zeros(0, dtype=key_states.dtype, device=key_states.device))
             self.value_cache.append(torch.zeros(0, dtype=key_states.dtype, device=key_states.device))
 
             # Pre-processing Sink Tokens
-            assert self.sink_length >= 0
             assert key_states.shape[-2] > self.sink_length, "RoCK-KV: sequence length must be greater than sink_length, currently."
             key_states_sink   = key_states[:, :, :self.sink_length, :].contiguous()
             value_states_sink = value_states[:, :, :self.sink_length, :].contiguous()
             key_states        = key_states[:, :, self.sink_length:, :].contiguous()
             value_states      = value_states[:, :, self.sink_length:, :].contiguous()
-            #
-            assert self.buffer_length % self.group_size == 0    # buffer length must be divisible by quantization group size
             #
             if key_states.shape[-2] <= self.buffer_length:
                 key_states_full = key_states
@@ -221,3 +286,25 @@ class RoCKKVCache(DynamicCache):
         """Dequantizes back the tensor that was quantized by `self._quantize()`"""
         raise NotImplementedError("Make sure to implement `_dequantize` in a subclass.")
     '''
+
+
+def get_kvcache_rock_kv(args: argparse.Namespace) -> RoCKKVCache:
+    """
+    Get the RoCKKVCache object.
+    Returns:
+        RoCKKVCache: The RoCKKVCache object.
+    """
+    #
+    cache_config = RoCKKVCacheConfig(
+        sink_length         = args.sink_length,
+        buffer_length       = args.buffer_length,
+        group_size          = args.group_size,
+        kbits               = args.kbits,
+        vbits               = args.vbits,
+        promote_ratio       = args.promote_ratio,
+        promote_bit         = args.promote_bit,
+        channel_selection   = args.channel_selection,
+        VCache_BitDecoding  = False,  # Using KIVI Style V Cache
+    )
+    #
+    return RoCKKVCache(cache_config=cache_config)

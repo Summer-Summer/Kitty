@@ -18,7 +18,7 @@ run_experiment () {
     echo "label=$label, sink=$sink, channel_sel=$channel, k=$kbits, v=$vbits, promote_bit=$promote_bit, promote_ratio=$PROMOTE_RATIO"
     CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
     eval_rock_kv $MODEL \
-      --task_list $TASK_NAME \
+      --task $TASK_NAME \
       --eval_rock_kv \
       --sink_length $sink \
       --buffer_length ${BUFFER_LENGTH} \
@@ -48,7 +48,7 @@ run_baseline () {
 
   CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
     eval_rock_kv $MODEL \
-      --task_list $TASK_NAME \
+      --task $TASK_NAME \
       --eval_rock_kv \
       --sink_length $sink \
       --buffer_length ${BUFFER_LENGTH} \
