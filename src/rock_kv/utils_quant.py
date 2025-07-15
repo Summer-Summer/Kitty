@@ -117,7 +117,7 @@ def fake_quant_groupwise_lastdim(
         scale = torch.where(promote_mask, scale_promote, scale_base)
         max_val = torch.where(
             promote_mask,
-            torch.full_like(scale, 2 ** promote_bit - 1),
+            torch.full_like(scale, 2 ** promote_bit - 1),       # promote_bit should be smaller than 16, otherwise overflow for f16
             torch.full_like(scale, 2 ** bit - 1)
         )
     else:

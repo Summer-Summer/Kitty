@@ -107,11 +107,19 @@ class RoCKKVCacheConfig(CacheConfig):
                     found_value=self.promote_ratio,
                 ),
             )
-        if self.promote_bit < self.kbits or self.promote_bit > 16:
+        if self.promote_ratio > 0 and self.promote_bit < self.kbits:
             raise ValueError(
                 incorrect_arg_msg.format(
                     key="promote_bit",
-                    correct_value=f"between {self.kbits} and 16",
+                    correct_value=f"promote_bit should be larger than kbits ({self.kbits})",
+                    found_value=self.promote_bit,
+                ),
+            )
+        if self.promote_bit <= 0 or self.promote_bit >= 16:
+            raise ValueError(
+                incorrect_arg_msg.format(
+                    key="promote_bit",
+                    correct_value=f"between 1 and 15",
                     found_value=self.promote_bit,
                 ),
             )
