@@ -3,7 +3,6 @@
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 GPU=6
-HF_HOME=/home/xhjustc/HF_HOME
 MODEL=meta-llama/Llama-3.1-8B-Instruct
 MODEL=meta-llama/Llama-3.3-70B-Instruct
 MODEL=Qwen/Qwen3-8B

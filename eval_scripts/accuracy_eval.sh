@@ -12,7 +12,7 @@ GPUs=$3
 
 # 固定设置
 export TORCH_CUDA_ARCH_LIST="9.0"
-HF_HOME=/home/xhjustc/HF_HOME
+
 
 
 
@@ -36,6 +36,6 @@ source ./utils.sh
 #run_experiment  "Accuracy_Across_Ratios"  32    1            2      2      4
 #run_experiment  "Accuracy_Across_Ratios"  32    0            2      2      4
 
-run_experiment  "Accuracy_Across_Ratios"  32    3            4      4      8
+run_experiment  "Accuracy_Across_Ratios"  32    3            2      2      4
 
 echo "Accuracy Evaluations for $TASK_NAME on $MODEL completed."

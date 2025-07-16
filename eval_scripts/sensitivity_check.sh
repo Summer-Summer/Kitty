@@ -12,7 +12,7 @@ GPUs=$3
 
 # 固定设置
 export TORCH_CUDA_ARCH_LIST="9.0"
-HF_HOME=/home/xhjustc/HF_HOME
+
 
 
 
