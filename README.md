@@ -1,5 +1,9 @@
 # RoCK-KV
 
+```
+newgrp docker
+```
+
 Docker on Donglin
 ```
 docker run -it --gpus all \
@@ -24,4 +28,16 @@ docker run -it --gpus all \
 -v /data/:/data/ \
 nvcr.io/nvidia/pytorch:24.04-py3 \
 bash
+```
+
+```
+cd lm-evaluation-harness
+pip install -e .
+cd RoCK-KV
+pip install -e .
+```
+
+Required by lm-eval when evaluating minerva-math
+```
+pip install "lm-eval[math]"
 ```

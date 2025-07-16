@@ -3,8 +3,7 @@ import torch
 from transformers import PreTrainedModel, AutoTokenizer
 import lm_eval
 #
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone, timedelta
 import os
 import gc
 import time
@@ -125,8 +124,10 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     )
 
     output = {}
-    au_tz = ZoneInfo("Australia/Sydney")
-    output["This file is generated_at"] = datetime.now(au_tz).isoformat()
+    #
+    utc_plus_10 = timezone(timedelta(hours=10))
+    output["This file is generated_at"] = datetime.now(utc_plus_10).isoformat()
+    #
     output["tasks"] = results['results']
     output["model_configs"] = model_configs
     output["eval_configs"] = results["config"]
