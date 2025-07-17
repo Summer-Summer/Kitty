@@ -139,15 +139,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
         #batch_size='auto',
         batch_size=1,
         cache_requests=False,
-        gen_kwargs={
-            "past_key_values": kv_cache,  # Use RoCKKV cache if provided
-            "max_new_tokens": 1024,  # Maximum number of new tokens to generate
-            "max_length": None,
-            "do_sample": False,    # Disable sampling for deterministic evaluation
-            "temperature": None,
-            "top_p": None,
-            "top_k": None,         # Disable top-k sampling
-        }
+        gen_kwargs=gen_kwargs
     )
 
     output = {}
