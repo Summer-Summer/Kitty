@@ -85,6 +85,33 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     else:
         num_fewshot = 0
 
+    # Set the stop words for different tasks
+    stop_words_dict = {
+        "gsm8k":     ["Given the following problem"],
+        "math":      ["Problem:",],
+        "gpqa":      ["Question: ",],
+        "humaneval": ["\n```\n", ],
+    }
+    for key, value in stop_words_dict.items():
+        if key in task:
+            stop_words = value
+            break
+    else:
+        stop_words = None
+
+    #
+    gen_kwargs = {
+            "past_key_values": kv_cache,  # Use RoCKKV cache if provided
+            "max_new_tokens": 2048,  # Maximum number of new tokens to generate, 1024 is not enough for large models on GPQA.
+            "max_length": None,
+            "do_sample": False,    # Disable sampling for deterministic evaluation
+            "temperature": None,
+            "top_p": None,
+            "top_k": None,         # Disable top-k sampling
+        }
+    if stop_words is not None:
+        gen_kwargs["until"] = stop_words
+
     # Enable code evaluation for humaneval task
     if "humaneval" in task:
         os.environ["HF_ALLOW_CODE_EVAL"] = "1"
