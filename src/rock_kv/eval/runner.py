@@ -88,9 +88,9 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     # Set the stop words for different tasks
     stop_words_dict = {
         "gsm8k":     ["Given the following problem"],
-        "math":      ["Problem:",],
+        #"math":      ["Problem:",],
         "gpqa":      ["Given the following problem",],
-        "humaneval": ["\n```\n", ],
+        #"humaneval": ["\n```\n", ],
     }
     for key, value in stop_words_dict.items():
         if key in task:
