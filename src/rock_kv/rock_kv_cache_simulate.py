@@ -31,6 +31,7 @@ class RoCKKVCacheConfig(CacheConfig):
         promote_bit: int = 4,
         channel_selection: int = 3,               # -1: Unspecified, 0: Random, 1: Variance-based, 2: Magnitude-based, 3: RoPE-aware
         VCache_BitDecoding: bool = False,         # The behavior of Value Cache, set to True means BitDecoding, otherwise KIVI Style Value Cache
+        PostQuant: bool = True,                   # Post Quantization is always enabled for RoCK-KV Cache
     ):
         super().__init__("rock_kv")
         self.sink_length = sink_length
@@ -42,6 +43,7 @@ class RoCKKVCacheConfig(CacheConfig):
         self.promote_bit = promote_bit
         self.channel_selection = channel_selection
         self.VCache_BitDecoding = VCache_BitDecoding
+        self.PostQuant = PostQuant
         #
         self.validate()
 
@@ -158,6 +160,7 @@ class RoCKKVCache(DynamicCache):
         self.promote_bit = cache_config.promote_bit
         self.channel_selection = cache_config.channel_selection
         self.VCache_BitDecoding = cache_config.VCache_BitDecoding
+        self.PostQuant = cache_config.PostQuant
         self.cache_implementation = cache_config.cache_implementation
 
     # To Do: support prefill length smaller than sink_length
@@ -179,6 +182,10 @@ class RoCKKVCache(DynamicCache):
             current_key_cache = self.key_cache[layer_idx]
             current_value_cache = self.value_cache[layer_idx]
             current_cache_length = current_key_cache.shape[-2]
+
+            if self.PostQuant:
+                keys_to_return = current_key_cache.detach().clone()
+                values_to_return = current_value_cache.detach().clone()
 
             assert current_cache_length > self.sink_length, "RoCK-KV: sequence length must be greater than sink_length, currently."
             # Need to quantize the middle part of the key and value caches
@@ -210,6 +217,10 @@ class RoCKKVCache(DynamicCache):
             current_value_cache = self.value_cache[layer_idx]
             current_cache_length = current_key_cache.shape[-2]
 
+            if self.PostQuant:
+                keys_to_return = current_key_cache.detach().clone()
+                values_to_return = current_value_cache.detach().clone()
+
             # quantize
             num_tokens_kv_to_quantize = current_cache_length - self.sink_length - self.buffer_length
             if num_tokens_kv_to_quantize > 0 and (num_tokens_kv_to_quantize % self.buffer_length == 1):  # need to quantize
@@ -230,7 +241,10 @@ class RoCKKVCache(DynamicCache):
                     value_slice = fake_quant_groupwise_lastdim(value_slice, self.group_size, self.vbits)
                     current_value_cache[:, :, -self.buffer_length-1:-self.buffer_length, :] = value_slice
         ####################################################################################################################
-        return current_key_cache, current_value_cache
+        if self.PostQuant:
+            return keys_to_return, values_to_return
+        else:
+            return current_key_cache, current_value_cache
 
 def get_kvcache_rock_kv(args: argparse.Namespace) -> RoCKKVCache:
     """
@@ -249,6 +263,7 @@ def get_kvcache_rock_kv(args: argparse.Namespace) -> RoCKKVCache:
         promote_bit         = args.promote_bit,
         channel_selection   = args.channel_selection,
         VCache_BitDecoding  = False,  # Using KIVI Style V Cache
+        PostQuant           = True,  # Post Quantization is always enabled for RoCK-KV Cache
     )
     #
     return RoCKKVCache(cache_config=cache_config)
