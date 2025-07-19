@@ -4,7 +4,7 @@ BUFFER_LENGTH=128
 PROMOTE_RATIOS=(0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0)
 
 # 通用函数
-run_experiment () {
+run_multiple_exp () {
   local label=$1
   local sink=$2
   local channel=$3
@@ -34,7 +34,7 @@ run_experiment () {
 }
 
 # 通用函数
-run_baseline () {
+run_single_exp () {
   local label=$1
   local sink=$2
   local channel=$3
@@ -58,6 +58,20 @@ run_baseline () {
       --promote_ratio $promote_ratio \
       --promote_bit $promote_bit \
       --channel_selection $channel \
+      > eval_logs/${GPUs//,/}.log 2>&1 &
+  wait
+}
+
+
+# 通用函数
+run_hf_baseline () {
+  echo "Launching $TASK_NAME on GPUs $GPUs"
+  echo "Huggingface baseline, HF standard implementation, k=16, v=16"
+  mkdir -p eval_logs
+
+  CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
+    eval_rock_kv $MODEL \
+      --task $TASK_NAME \
       > eval_logs/${GPUs//,/}.log 2>&1 &
   wait
 }

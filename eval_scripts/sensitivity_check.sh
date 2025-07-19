@@ -43,7 +43,7 @@ Vs=(16)
 for k in "${Ks[@]}"; do
   for v in "${Vs[@]}"; do
     echo "Running sensitivity check with k=$k, v=$v"
-    run_baseline   "Sensitivity Check"  32  0     $k  $v  8   0.0
+    run_single_exp   "Sensitivity Check"  32  0     $k  $v  8   0.0
   done
 done
 
