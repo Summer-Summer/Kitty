@@ -85,20 +85,25 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     else:
         num_fewshot = 0
 
+    # Shared stop words for all tasks
+    stop_words = [
+        "<|end_of_text|>",     # Llama-3 (128001)   real EOS
+        "<|eot_id|>",          # Llama-3 (128009)   turn ended
+        "<|end_header_id|>",   # Llama-3 (128008)   head ended
+        "<|endoftext|>",       # Qwen-3  (151643)   real EOS
+        "<|im_end|>",          # Qwen-3  (151645)   message ended
+    ]
     # Set the stop words for different tasks
     stop_words_dict = {
         "gsm8k":     ["Given the following problem"],
         "math":      ["Problem:",],
         "gpqa":      ["Question:",],
-        "humaneval": ["\n```", ],
+        "humaneval": ["\n```",],
     }
     for key, value in stop_words_dict.items():
         if key in task:
-            stop_words = value
+            stop_words.extend(value)
             break
-    else:
-        stop_words = None
-
     #
     gen_kwargs = {
             "past_key_values": kv_cache,  # Use RoCKKV cache if provided
@@ -108,9 +113,8 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
             "temperature": None,
             "top_p": None,
             "top_k": None,         # Disable top-k sampling
+            "until": stop_words,  # Stop words for different tasks
         }
-    if stop_words is not None:
-        gen_kwargs["until"] = stop_words
 
     # Enable code evaluation for humaneval task
     if "humaneval" in task:
