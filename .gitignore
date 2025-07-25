@@ -2,3 +2,4 @@
 *__pycache__*
 *eval_logs*
 *eval_results*
+*.pt
