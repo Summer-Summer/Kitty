@@ -1,4 +1,4 @@
-GPUs=4
+GPUs=0
 MODEL="meta-llama/Llama-3.1-8B-Instruct"
 TASK_NAME="gpqa_diamond_cot_n_shot"
 TASK_NAME="gsm8k_cot_llama"
@@ -20,6 +20,6 @@ CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
     --promote_ratio ${PROMOTE_RATIO} \
     --promote_bit ${PROMOTE_BIT} \
     --eval_rock_kv \
-    --channel_selection 3
+    --channel_selection 4 --debug
 
 #--eval_rock_kv \

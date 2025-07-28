@@ -44,7 +44,7 @@ def main() -> None:
 
     #
     if args.visualize_kv:
-        assert rock_kv_cache is None, "visualization is only supported for HF default dynamic cache, not RoCK-KV cache."
+        #assert rock_kv_cache is None, "visualization is only supported for HF default dynamic cache, not RoCK-KV cache."
         model_name = args.model.split("/")[-1]
         torch.save(outputs.past_key_values, f"past_kv_{model_name}_{task_name}.pt")
         #visualize_kv_cache(outputs.past_key_values, save_dir="kv_visualizations")

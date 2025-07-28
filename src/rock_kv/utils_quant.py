@@ -4,13 +4,35 @@ import torch
 from typing import Optional
 
 __all__ = [
+    "build_q_score",
     "build_promote_mask",
     "fake_quant_groupwise_lastdim",
 ]
 
 
+def build_q_score(query_states: torch.Tensor, kv_head: int) -> torch.Tensor:
+    """
+    Calculate the query score based on the query states.
+    Args:
+        query_states: (B, nh, T, D) - query states tensor
+    Returns:
+        q_score: (kv_head, D//2) - query score tensor
+    """
+    assert query_states.dim() == 4, "Expected input shape [B, nh, T, D]"
+    B, nh, T, D = query_states.shape
+    #
+    assert B == 1, "Query_Aware channel selection is designed for batch size 1."
+    Amplitude = (query_states[:, :, :, :D//2].pow(2) + query_states[:, :, :, D//2:].pow(2)) # (B, nh, T, D//2)
+    Amplitude = Amplitude.mean(dim=-2)  # (B, nh, D//2)
+    Amplitude = Amplitude.reshape(B, kv_head, nh//kv_head, D//2)  # (B, kv_head, nh/kv_head, D//2)
+    Amplitude = Amplitude.mean(dim=2)  # (B, kv_head, D//2)
+    Amplitude = Amplitude.mean(dim=0)  # (kv_head, D//2)
+    q_score = Amplitude.sqrt()       # (kv_head, D//2)
+    return q_score
+
+
 # ToDo: Support batch size > 1, promote_mask  : (B, nh, D) bool
-def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_selection: int) -> torch.BoolTensor:
+def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_selection: int, q_score: Optional[torch.Tensor]=None) -> torch.BoolTensor:
     """
     Generating a mask to select channels based on importance scores.
     args:
@@ -22,6 +44,7 @@ def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_s
                                         (1)  Variance-based Channel Selection;
                                         (2)  Magnitude-based Channel Selection;
                                         (3)  RoPE-aware Channel Selection;
+                                        (4)  Query_Aware Channel Selection;
     returns:
         promote_mask  : (nh, D) bool,      promote_mask[i][j] == True -> j-th channel of i-th head is selected for promotion
     """
@@ -68,6 +91,37 @@ def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_s
             idx1 = idx0 + D // 2                        # shift
             promote_mask[i].scatter_(0, idx0, True)
             promote_mask[i].scatter_(0, idx1, True)
+    elif channel_selection == 4:                                                            # (4)  Query_Aware Channel Selection
+        #assert q_score is not None, "Query_Aware channel selection requires q_score to be provided."
+        #assert q_score.shape == (nh, D // 2), f"Expected q_score shape (nh, D//2), got {q_score.shape}"
+        ## Calculate the importance score based on Key cache
+        #Amplitude = (key_states[:, :, :D//2, :].pow(2) + key_states[:, :, D//2:, :].pow(2)) # (B, nh, D//2, T)
+        #Amplitude = Amplitude.mean(dim=-1)  # (B, nh, D//2)
+        #Amplitude = Amplitude.mean(dim=0)  # (nh, D//2)
+        #Amplitude = Amplitude.sqrt()  # (nh, D//2)
+        ## Combine with q_score
+        #score = Amplitude * q_score  # (nh, D//2)
+        ##
+        #k_pair = k_chan // 2                            # number of channel pairs to promote
+        #_, top_pair_idx = score.topk(k_pair, dim=-1)    # (nh, k_pair)
+        #for i in range(nh):
+        #    idx0 = top_pair_idx[i]                      # (k_pair,)
+        #    idx1 = idx0 + D // 2                        # shift
+        #    promote_mask[i].scatter_(0, idx0, True)
+        #    promote_mask[i].scatter_(0, idx1, True)
+
+        #
+        assert q_score is not None, "Query_Aware channel selection requires q_score to be provided."
+        assert q_score.shape == (nh, D // 2), f"Expected q_score shape (nh, D//2), got {q_score.shape}"
+        q_score = torch.cat([q_score, q_score], dim=-1)  # (nh, D)
+        #
+        k_score = key_states.pow(2).mean(dim=-1).mean(dim=0)  # (B, nh, D, T) → (B, nh, D) → (nh, D)
+        k_score = k_score.sqrt()  # (nh, D)
+        #
+        score = k_score * q_score  # (nh, D)
+        #
+        _, top_idx = score.topk(k_chan, dim=-1)
+        promote_mask.scatter_(-1, top_idx, True)   # True → promote channel
     ########################################################################################################################
     else:
         raise ValueError(f"Invalid channel_selection strategy: {channel_selection}")

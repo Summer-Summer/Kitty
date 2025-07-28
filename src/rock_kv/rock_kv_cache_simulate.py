@@ -8,7 +8,7 @@ import argparse
 import torch
 from transformers.cache_utils import CacheConfig, DynamicCache
 
-from .utils_quant import build_promote_mask, fake_quant_groupwise_lastdim
+from .utils_quant import build_promote_mask, fake_quant_groupwise_lastdim, build_q_score
 
 
 @dataclass
@@ -53,7 +53,7 @@ class RoCKKVCacheConfig(CacheConfig):
             "Some of the keys in `cache_config` are defined incorrectly. `{key}` should be {correct_value}` "
             "but found {found_value}"
         )
-        if self.channel_selection not in [0,1,2,3]:
+        if self.channel_selection not in [0,1,2,3,4]:
             raise ValueError(
                 incorrect_arg_msg.format(
                     key="channel_selection",
@@ -164,6 +164,7 @@ class RoCKKVCache(DynamicCache):
         self.cache_implementation = cache_config.cache_implementation
         #
         self.query_cache: list[torch.Tensor] = []
+        self.query_score: list[torch.Tensor] = []
 
     # To Do: support prefill length smaller than sink_length
     def update(
@@ -190,6 +191,16 @@ class RoCKKVCache(DynamicCache):
             #
             if query_states is not None:
                 self.query_cache.append(query_states.detach().clone())
+            
+            # Query_Aware
+            if self.channel_selection == 4:
+                if query_states is None:
+                    raise ValueError("Query_Aware channel selection requires query_states to be provided.")
+                kv_head = key_states.shape[1]
+                q_score = build_q_score(query_states[:, :, self.sink_length:, :], kv_head)
+                self.query_score.append(q_score)
+            else:
+                q_score = None
 
             if self.PostQuant:
                 keys_to_return = current_key_cache.detach().clone()
@@ -206,7 +217,7 @@ class RoCKKVCache(DynamicCache):
                 # Quantize Key Cache
                 for idx in range(start_idx, end_idx, self.buffer_length):
                     key_slice = current_key_cache[:, :, idx:idx+self.buffer_length, :].transpose(2, 3).contiguous()
-                    promote_mask = build_promote_mask(key_slice, self.promote_ratio, self.channel_selection)
+                    promote_mask = build_promote_mask(key_slice, self.promote_ratio, self.channel_selection, q_score)
                     key_slice = fake_quant_groupwise_lastdim(key_slice, self.group_size, self.kbits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
                     current_key_cache[:, :, idx:idx+self.buffer_length, :] = key_slice
                 # Quantize Value Cache
@@ -228,6 +239,12 @@ class RoCKKVCache(DynamicCache):
             if query_states is not None:
                 self.query_cache[layer_idx] = torch.cat([self.query_cache[layer_idx], query_states], dim=-2)
 
+            # Query_Aware
+            if self.channel_selection == 4:
+                q_score = self.query_score[layer_idx]
+            else:
+                q_score = None
+
             if self.PostQuant:
                 keys_to_return = current_key_cache.detach().clone()
                 values_to_return = current_value_cache.detach().clone()
@@ -237,7 +254,7 @@ class RoCKKVCache(DynamicCache):
             if num_tokens_kv_to_quantize > 0 and (num_tokens_kv_to_quantize % self.buffer_length == 1):  # need to quantize
                 # Quantize Key Cache
                 key_slice = current_key_cache[:, :, -self.buffer_length-1:-1, :]
-                promote_mask = build_promote_mask(key_slice.transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection)
+                promote_mask = build_promote_mask(key_slice.transpose(2, 3).contiguous(), self.promote_ratio, self.channel_selection, q_score)
                 key_slice = fake_quant_groupwise_lastdim(key_slice.transpose(2, 3).contiguous(), self.group_size, self.kbits, promote_mask, self.promote_bit).transpose(2, 3).contiguous()
                 current_key_cache[:, :, -self.buffer_length-1:-1, :] = key_slice
                 # Quantize Value Cache (BitDecoding)

@@ -6,7 +6,7 @@ GPU=0
 MODEL=meta-llama/Llama-3.1-8B-Instruct
 MODEL=meta-llama/Llama-3.3-70B-Instruct
 MODEL=Qwen/Qwen3-8B
-#MODEL=Qwen/Qwen3-32B
+MODEL=Qwen/Qwen3-32B
 
 echo "Generating for ${MODEL} on GPU ${GPU} with Original Huggingface KV Config."
 CUDA_VISIBLE_DEVICES=${GPU} \
@@ -14,7 +14,7 @@ gen_rock_kv \
 --model ${MODEL} \
 --max_token_new 2048 \
 --prompt_choice 2 \
---visualize_kv
+--visualize_kv --gen_rock_kv
 
 #echo "Generating for ${MODEL} on GPU ${GPU} with RoCK-KV Config."
 #CUDA_VISIBLE_DEVICES=${GPU} \
