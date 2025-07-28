@@ -162,6 +162,8 @@ class RoCKKVCache(DynamicCache):
         self.VCache_BitDecoding = cache_config.VCache_BitDecoding
         self.PostQuant = cache_config.PostQuant
         self.cache_implementation = cache_config.cache_implementation
+        #
+        self.query_cache: list[torch.Tensor] = []
 
     # To Do: support prefill length smaller than sink_length
     def update(
@@ -170,6 +172,7 @@ class RoCKKVCache(DynamicCache):
         value_states: torch.Tensor,
         layer_idx: int,
         cache_kwargs: Optional[dict[str, Any]] = None,
+        query_states: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         
         if len(self.key_cache) < layer_idx:
@@ -182,6 +185,10 @@ class RoCKKVCache(DynamicCache):
             current_key_cache = self.key_cache[layer_idx]
             current_value_cache = self.value_cache[layer_idx]
             current_cache_length = current_key_cache.shape[-2]
+
+            #
+            if query_states is not None:
+                self.query_cache.append(query_states.detach().clone())
 
             if self.PostQuant:
                 keys_to_return = current_key_cache.detach().clone()
@@ -216,6 +223,9 @@ class RoCKKVCache(DynamicCache):
             current_key_cache = self.key_cache[layer_idx]
             current_value_cache = self.value_cache[layer_idx]
             current_cache_length = current_key_cache.shape[-2]
+
+            if query_states is not None:
+                self.query_cache[layer_idx] = torch.cat([self.query_cache[layer_idx], query_states], dim=-2)
 
             if self.PostQuant:
                 keys_to_return = current_key_cache.detach().clone()
