@@ -172,9 +172,10 @@ class RoCKKVCache(DynamicCache):
         value_states: torch.Tensor,
         layer_idx: int,
         cache_kwargs: Optional[dict[str, Any]] = None,
-        query_states: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         
+        query_states = cache_kwargs.get("query_states", None) if cache_kwargs is not None else None
+
         if len(self.key_cache) < layer_idx:
             raise ValueError("QuantizedCache does not support model usage where layers are skipped. Use DynamicCache.")
         ################################################## Prefill Phase ##################################################
