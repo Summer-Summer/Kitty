@@ -41,3 +41,6 @@ Required by lm-eval when evaluating minerva-math
 ```
 pip install "lm-eval[math]"
 ```
+
+
+pip install seaborn
