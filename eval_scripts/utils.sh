@@ -17,6 +17,7 @@ run_multiple_exp () {
     echo "Launching $TASK_NAME on GPUs $GPUs"
     echo "label=$label, sink=$sink, channel_sel=$channel, k=$kbits, v=$vbits, promote_bit=$promote_bit, promote_ratio=$PROMOTE_RATIO"
     CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
+    HF_DATASETS_TRUST_REMOTE_CODE=1 \
     eval_rock_kv $MODEL \
       --task $TASK_NAME \
       --eval_rock_kv \
@@ -47,6 +48,7 @@ run_single_exp () {
   mkdir -p eval_logs
 
   CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
+  HF_DATASETS_TRUST_REMOTE_CODE=1 \
     eval_rock_kv $MODEL \
       --task $TASK_NAME \
       --eval_rock_kv \
@@ -70,6 +72,7 @@ run_hf_baseline () {
   mkdir -p eval_logs
 
   CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
+  HF_DATASETS_TRUST_REMOTE_CODE=1 \
     eval_rock_kv $MODEL \
       --task $TASK_NAME \
       > eval_logs/${GPUs//,/}.log 2>&1 &
