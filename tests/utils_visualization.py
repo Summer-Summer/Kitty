@@ -39,6 +39,44 @@ def visualize_tensor_3d(tensor, FILE_PATH='3d_tensor.png', Title='3D Tensor Visu
     plt.close()
 
 
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+
+def visualize_mse_lineplot(mse_tensor: torch.Tensor, save_path: str, title: str = "Channel-wise Attention Score MSE"):
+    """
+    Visualize one or more MSE curves.
+    
+    Args:
+        mse_tensor: 
+            - shape (D,) for a single line
+            - shape (G, D) for multiple Q heads over same KV head
+        save_path: Path to save the image.
+        title: Title of the plot.
+    """
+    mse_np = mse_tensor.detach().cpu().numpy()
+    
+    plt.figure(figsize=(4, 2))
+
+    if mse_np.ndim == 1:
+        plt.plot(mse_np, linewidth=1.5)
+    elif mse_np.ndim == 2:
+        G = mse_np.shape[0]
+        for g in range(G):
+            plt.plot(mse_np[g], label=f"Q_head {g}", linewidth=1.2)
+        plt.legend(fontsize=8, loc='upper right', ncol=2, frameon=False)
+    else:
+        raise ValueError("mse_tensor must be 1D or 2D (G x D).")
+
+    #plt.title(title, fontsize=12)
+    plt.xlabel("Channel Index", fontsize=10)
+    plt.ylabel("MSE", fontsize=10)
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout(pad=0.3)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
 def visualize_tensor_1d(tensor, FILE_PATH='1d_tensor.png'):
     """
     Visualize a 1D PyTorch tensor as a line plot.
