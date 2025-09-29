@@ -77,7 +77,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
         model_configs["VCache_BitDecoding"] = kv_cache.VCache_BitDecoding
 
     # Set the number of shots for different tasks
-    few_shot_dict = {"mmlu": 4, "gsm8k": 8, "gpqa": 5, "math": 4, "bbh": 3,}
+    few_shot_dict = {"mmlu": 4, "gsm8k": 8, "gpqa": 5, "math": 4, "bbh": 3, "aime": 0,}
     for key, value in few_shot_dict.items():
         if key in task:
             num_fewshot = value
@@ -99,6 +99,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
         "math":      ["Problem:",],
         "gpqa":      ["Question:",],
         "humaneval": ["\n```",],
+        "aime":      ["Question:",],
     }
     for key, value in stop_words_dict.items():
         if key in task:
@@ -107,7 +108,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     #
     gen_kwargs = {
             "past_key_values": kv_cache,  # Use RoCKKV cache if provided
-            "max_new_tokens": 2048,  # Maximum number of new tokens to generate, 1024 is not enough for large models on GPQA.
+            "max_new_tokens": 8192,  # Maximum number of new tokens to generate, 8k for complex mathematical reasoning tasks like AIME.
             "max_length": None,
             "do_sample": False,    # Disable sampling for deterministic evaluation
             "temperature": None,
@@ -123,7 +124,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     # For DEBUG mode, limit the number of samples
     limit = None
     if DEBUG:
-        limit = 8
+        limit = 1
 
     print("Evaluating model accuracy on downstream tasks...")
     print("ModelName: ", model_configs["ModelPath"])
