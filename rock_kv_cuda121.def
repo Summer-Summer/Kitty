@@ -2,9 +2,6 @@ Bootstrap: docker
 From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
 
 %files
-    # 将本地的transformers和lm-evaluation-harness复制到容器中
-    ../transformers /opt/transformers
-    ../lm-evaluation-harness /opt/lm-evaluation-harness
 
 %post
     # 更新系统包管理器
@@ -22,28 +19,11 @@ From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
     pip install matplotlib
     pip install seaborn
     
-    # 安装lm-eval with math support
-    pip install "lm-eval[math]"
-    
     # 处理flash-attn
     pip uninstall -y flash-attn || true
     pip install flash-attn==2.7.4.post1 --no-build-isolation
-    
-    # 更新triton
-    pip install -U triton
-
-    # 安装自定义transformers
-    cd /opt/transformers && \
-    git checkout hf-4.53.2 && \
-    pip install -e .
-
-    # 安装自定义lm-evaluation-harness
-    cd /opt/lm-evaluation-harness && \
-    pip install -e .
 
     # 创建必要的目录
-    mkdir -p /data/shared/huggingface
-    mkdir -p /workspace
 
 %environment
     # 设置环境变量
@@ -59,11 +39,11 @@ From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
 %help
     This container includes:
     - PyTorch 2.4.1 with CUDA 12.1 and cuDNN 9
-    - Custom transformers (hf-4.53.2 branch)
-    - Custom lm-evaluation-harness
     - matplotlib, seaborn for visualization
     - flash-attn 2.7.4.post1
     - Updated triton
+    - Custom transformers (hf-4.53.2 branch)
+    - Custom lm-evaluation-harness
     
     Usage:
     singularity exec --nv --bind /data:/data --bind /path/to/your/project:/workspace container.sif <command>

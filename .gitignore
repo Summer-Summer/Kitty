@@ -8,3 +8,4 @@
 *.out
 venv/
 .cache/
+build/
