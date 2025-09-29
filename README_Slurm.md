@@ -16,25 +16,17 @@ sudo apptainer build kchanboost.sif ../rock_kv_cuda121.def
 
 ### Building .img (writable overlay image):
 ```
+cd build
 apptainer overlay create --size 8192 kchanboost.img
 ```
 
 ### Installing software into the overlay image:
 Entering the apptainer:
-Haojun:
 ```
 apptainer exec --nv \
---bind /home/xhjustc:/workspace \
+--bind /home/$USER:/workspace \
 --bind /data:/data \
---overlay kchanboost.img kchanboost.sif bash
-```
-
-Jisen:
-```
-apptainer exec --nv \
---bind /home/jisenli2/RoCK-KV:/workspace \
---bind /data:/data \
---overlay kchanboost.img kchanboost.sif bash
+--overlay build/kchanboost.img build/kchanboost.sif bash
 ```
 
 Installing the package:
@@ -59,6 +51,33 @@ exit
 ```
 
 
+### Updating packages in overlay (开发过程中更新代码):
+如果修改了lm_eval或RoCK-KV的代码，需要重新安装到overlay中：
+
+进入容器环境:
+```
+apptainer exec --nv \
+--bind /home/$USER:/workspace \
+--bind /data:/data \
+--overlay build/kchanboost.img build/kchanboost.sif bash
+```
+
+更新对应的包:
+```
+# 如果修改了lm-evaluation-harness代码
+cd /workspace/RoCK-KV/third_party/lm-evaluation-harness
+pip install -e . --force-reinstall
+
+# 如果修改了RoCK-KV代码
+cd /workspace/RoCK-KV/
+pip install -e . --force-reinstall
+
+退出容器:
+```
+exit
+```
+
+
 ### Testing:
 Entering the computing node (interative mode):
 ```
@@ -72,20 +91,11 @@ srun --ntasks=1 \
 ```
 
 Entering the apptainer:
-Haojun:
 ```
 apptainer exec --nv \
---bind /home/xhjustc:/workspace \
+--bind /home/$USER:/workspace \
 --bind /data:/data \
---overlay kchanboost.img kchanboost.sif bash
-```
-
-Jisen:
-```
-apptainer exec --nv \
---bind /home/jisenli2/RoCK-KV:/workspace \
---bind /data:/data \
---overlay kchanboost.img kchanboost.sif bash
+--overlay build/kchanboost.img build/kchanboost.sif bash
 ```
 
 Testing:
