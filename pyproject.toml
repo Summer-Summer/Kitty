@@ -20,7 +20,7 @@ classifiers = [
 "" = "src"
 
 [tool.setuptools.packages.find]
-include = ["rock_kv*"]
+include = ["rock_kv*", "kchanboost*"]
 exclude = ["eval_scripts*", "docs*"]
 
 
