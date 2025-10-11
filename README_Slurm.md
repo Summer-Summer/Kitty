@@ -95,7 +95,7 @@ singularity exec --bind /home/jisenli2:/workspace --overlay /home/jisenli2/RoCK-
 Entering the computing node (interative mode):
 ```
 srun --ntasks=1 \
-		 --gres=gpu:1 \
+		 --gres=gpu:8 \
 		 --cpus-per-task=64 \
 		 --mem=450000 \
 		 --partition=batch \
