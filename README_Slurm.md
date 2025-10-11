@@ -50,47 +50,6 @@ pip install -e .
 exit
 ```
 
-
-### Updating packages in overlay (开发过程中更新代码):
-如果修改了lm_eval或RoCK-KV的代码，需要重新安装到overlay中：
-
-进入容器环境:
-```
-apptainer exec --nv \
---bind /home/$USER:/workspace \
---bind /data:/data \
---overlay build/kchanboost.img build/kchanboost.sif bash
-```
-
-更新对应的包:
-```bash
-# 如果修改了lm-evaluation-harness代码
-cd /workspace/RoCK-KV/third_party/lm-evaluation-harness
-pip install -e . --force-reinstall
-
-# 如果修改了RoCK-KV代码
-cd /workspace/RoCK-KV/
-pip install -e . --force-reinstall
-```
-
-退出容器:
-```bash
-exit
-```
-
-### 快速重装命令（推荐）
-
-如果修改了RoCK-KV代码，可以使用以下一键命令直接重装（无需进入容器）：
-```bash
-singularity exec --bind /home/jisenli2:/workspace --overlay /home/jisenli2/RoCK-KV/build/kchanboost.img /home/jisenli2/RoCK-KV/build/kchanboost.sif bash -c "cd /workspace/RoCK-KV && pip uninstall -y rock_kv && pip install -e ."
-```
-
-如果修改了lm-evaluation-harness代码：
-```bash
-singularity exec --bind /home/jisenli2:/workspace --overlay /home/jisenli2/RoCK-KV/build/kchanboost.img /home/jisenli2/RoCK-KV/build/kchanboost.sif bash -c "cd /workspace/RoCK-KV/third_party/lm-evaluation-harness && pip uninstall -y lm_eval && pip install -e ."
-```
-
-
 ### Testing:
 Entering the computing node (interative mode):
 ```
@@ -111,8 +70,20 @@ apptainer exec --nv \
 --overlay build/kchanboost.img build/kchanboost.sif bash
 ```
 
-Testing:
-```
-cd /workspace/RoCK-KV/tests/
-./gen_test.sh
+### Running Evaluations:
+```bash
+cd eval_scripts
+
+# View usage and parameters
+./accuracy_eval5.sh
+
+# Examples:
+# Run with 10 repeats, batch_size=2
+./accuracy_eval5.sh "Qwen/Qwen3-8B" "aime24" "0" "10" "2"
+
+# Run with defaults (1 repeat, batch_size=1)
+./accuracy_eval5.sh "Qwen/Qwen3-8B" "aime24" "0"
+
+# Multi-GPU evaluation
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "0,1" "10" "1"
 ```
