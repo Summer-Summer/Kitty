@@ -18,8 +18,10 @@ If you are also using a Slurm-managed cluster, these commands will be helpful:
 
 - **Request an interactive node:** 
   ```bash
-  srun --ntasks=1 --gres=gpu:8 --cpus-per-task=64 --mem=450000 --partition=batch --pty /bin/bash
+  srun --ntasks=1 --gres=gpu:8 --cpus-per-task=64 --mem=1024000 --partition=batch --pty /bin/bash
   ```
+  
+  **Note:** The `--mem=1024000` requests 1TB of RAM. If you encounter RAM shortage issues, you can reduce memory usage by setting `low_cpu_mem_usage=True` in the model loading code (`src/rock_kv/cli/eval_rock_kv.py` line 34).
 
 - **Enter a specific node from login node:**
   ```bash
@@ -43,7 +45,22 @@ If you are also using a Slurm-managed cluster, these commands will be helpful:
 
 ## Prerequisites
 
-### 1. Request Model Access
+### 1. Set Up GitHub SSH Access
+
+To push your code changes and results, you need to configure SSH authentication with GitHub.
+
+**Quick setup:**
+```bash
+# Generate SSH key and add to GitHub
+ssh-keygen -t ed25519 -C "your_email@example.com"
+cat ~/.ssh/id_ed25519.pub  # Copy this output to GitHub
+```
+
+Then add the key to GitHub: https://github.com/settings/keys
+
+For detailed instructions, see: https://docs.github.com/en/authentication/connecting-to-github-with-ssh
+
+### 2. Request Model Access
 
 Before running evaluations, you need to request access to the following models/datasets on Hugging Face:
 
@@ -53,7 +70,7 @@ Before running evaluations, you need to request access to the following models/d
 
 Visit each link above, log in to your Hugging Face account, and click the "Request Access" button. Approval is usually granted within a few minutes to hours.
 
-### 2. Set Up Hugging Face Token
+### 3. Set Up Hugging Face Token
 
 After gaining access, you need to authenticate with your Hugging Face token:
 
