@@ -73,26 +73,28 @@ First, edit `accuracy_eval5.sh`:
 
 Run the following commands:
 ```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "0" "10" "1"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "1" "10" "1"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "0,1" "10" "8"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "2,3" "10" "8"
 ```
 
 **Note:** After submitting any shell script, you can safely press `Ctrl + C` to exit - the task will continue running in the background. Logs can be found in `eval_scripts/eval_logs`, and results will be saved in `eval_scripts/eval_results`.
 
-### 2. KIVI - K4V2
+### 2. KIVI - K4V4
 
 Edit `accuracy_eval5.sh`:
 - **Comment out** `run_hf_baseline`
 - **Uncomment** one `run_single_exp` line (the third one, but any will work as long as the parameters are correct)
-- Set the parameters: `sink = 0`, `kbits = 4`, `vbits = 2`, `promote_ratio = 0.0`
+- Set the parameters: `sink = 0`, `kbits = 4`, `vbits = 4`, `promote_ratio = 0.0`
 - Keep other parameters unchanged
 - Save the changes
 
 Run the following commands:
 ```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "2" "10" "1"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "3" "10" "1"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "4,5" "10" "8"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "6,7" "10" "8"
 ```
+
+(To get a new computing node, refer to the Advanced Tips below)
 
 ### 3. KIVI - K2V2
 
@@ -103,21 +105,21 @@ Edit `accuracy_eval5.sh`:
 
 Run the following commands:
 ```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "4" "10" "1"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "5" "10" "1"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "0,1" "10" "8"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "2,3" "10" "8"
 ```
 
-### 4. KChanBoost-K2.1V2 (10% Promotion)
+### 4. KChanBoost-K2V2 (0% Promotion)
 
 Edit `accuracy_eval5.sh`:
-- For `run_single_exp`: set `sink = 32`, `kbits = 2`, `vbits = 2`, `promote_ratio = 0.1`
+- For `run_single_exp`: set `sink = 32`, `kbits = 2`, `vbits = 2`, `promote_ratio = 0.0`
 - Keep other parameters unchanged
 - Save the changes
 
 Run the following commands:
 ```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "6" "10" "1"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "7" "10" "1"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "4,5" "10" "8"
+./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "6,7" "10" "8"
 ```
 
 ## Task Tracking
