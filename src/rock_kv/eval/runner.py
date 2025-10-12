@@ -118,14 +118,31 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     else:
         num_fewshot = 0
 
-    # Shared stop words for all tasks
-    stop_words = [
-        "<|end_of_text|>",     # Llama-3 (128001)   real EOS
-        "<|eot_id|>",          # Llama-3 (128009)   turn ended
-        "<|end_header_id|>",   # Llama-3 (128008)   head ended
-        "<|endoftext|>",       # Qwen-3  (151643)   real EOS
-        "<|im_end|>",          # Qwen-3  (151645)   message ended
-    ]
+    # Model-specific stop words
+    model_name = model.config._name_or_path.lower()
+    
+    if "qwen" in model_name:
+        # Qwen models
+        stop_words = [
+            "<|endoftext|>",       # Qwen-3  (151643)   real EOS
+            "<|im_end|>",          # Qwen-3  (151645)   message ended
+        ]
+    elif "llama" in model_name:
+        # LLaMA models
+        stop_words = [
+            "<|end_of_text|>",     # Llama-3 (128001)   real EOS
+            "<|eot_id|>",          # Llama-3 (128009)   turn ended
+            "<|end_header_id|>",   # Llama-3 (128008)   head ended
+        ]
+    else:
+        # Fallback: include all common stop tokens
+        stop_words = [
+            "<|end_of_text|>",     # Llama-3
+            "<|eot_id|>",          # Llama-3
+            "<|end_header_id|>",   # Llama-3
+            "<|endoftext|>",       # Qwen-3
+            "<|im_end|>",          # Qwen-3
+        ]
     # Set the stop words for different tasks
     stop_words_dict = {
         "gsm8k":     ["Given the following problem"],
