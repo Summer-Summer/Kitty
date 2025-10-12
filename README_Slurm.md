@@ -30,12 +30,19 @@ apptainer exec --nv \
 ```
 
 Installing the package:
+
+**注意事项：** 在安装之前，有可能需要手动切换到以下分支：
+- Transformers: `hf-4.53.2`
+- lm_eval: `rock-kv`
+
 ```
 # 安装自定义transformers
 cd /workspace/RoCK-KV/third_party/transformers
+git checkout hf-4.53.2  # 切换到指定分支
 pip install -e .
 # 安装自定义lm-evaluation-harness
 cd /workspace/RoCK-KV/third_party/lm-evaluation-harness
+git checkout rock-kv  # 切换到指定分支
 pip install -e .
 # 安装lm-eval with math support
 pip install "lm-eval[math]"
