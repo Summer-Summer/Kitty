@@ -69,7 +69,11 @@ def build_eval_output(
     gen_kwargs: Dict,
     limit: Optional[int],
     kv_cache: Optional[Any] = None,
-    batch_size: int = 8
+    batch_size: int = 8,
+    random_seed: int = 0,
+    numpy_seed: int = 1234,
+    torch_seed: int = 1234,
+    fewshot_seed: int = 1234
 ) -> Dict:
     """
     Build output dictionary in lm_eval format.
@@ -85,6 +89,10 @@ def build_eval_output(
         limit: Number of samples to evaluate (None for all)
         kv_cache: Optional RoCK-KV cache object
         batch_size: Batch size for inference (default: 8)
+        random_seed: Random seed used for Python's random module
+        numpy_seed: Random seed used for numpy
+        torch_seed: Random seed used for torch
+        fewshot_seed: Random seed used for fewshot sampler
     
     Returns:
         Dictionary in lm_eval output format
@@ -112,10 +120,10 @@ def build_eval_output(
             "limit": limit,
             "bootstrap_iters": 100000,
             "gen_kwargs": {k: v for k, v in gen_kwargs.items() if k != "past_key_values"},
-            "random_seed": 0,
-            "numpy_seed": 1234,
-            "torch_seed": 1234,
-            "fewshot_seed": 1234,
+            "random_seed": random_seed,
+            "numpy_seed": numpy_seed,
+            "torch_seed": torch_seed,
+            "fewshot_seed": fewshot_seed,
         },
         "samples": {
             task: all_samples
@@ -145,7 +153,11 @@ def run_evaluation_repeats(
     num_repeats: int,
     completed_repeats: List[int],
     all_results: List[Dict],
-    batch_size: int = 8
+    batch_size: int = 8,
+    base_random_seed: int = 0,
+    base_numpy_seed: int = 1234,
+    base_torch_seed: int = 1234,
+    base_fewshot_seed: int = 1234
 ) -> List[Dict]:
     """
     Run evaluation for remaining repeats and save results.
@@ -164,6 +176,11 @@ def run_evaluation_repeats(
         num_repeats: Total number of repeats to run
         completed_repeats: List of already completed repeat indices
         all_results: List to accumulate results (will be modified in-place)
+        batch_size: Batch size for inference (default: 8)
+        base_random_seed: Base random seed for Python's random module (default: 0)
+        base_numpy_seed: Base random seed for numpy (default: 1234)
+        base_torch_seed: Base random seed for torch (default: 1234)
+        base_fewshot_seed: Base random seed for fewshot sampler (default: 1234)
     
     Returns:
         Updated list of all results (same as all_results parameter)
@@ -172,11 +189,19 @@ def run_evaluation_repeats(
         if repeat_idx in completed_repeats:
             continue
         
+        # Calculate unique seeds for this repeat
+        current_random_seed = base_random_seed + repeat_idx
+        current_numpy_seed = base_numpy_seed + repeat_idx
+        current_torch_seed = base_torch_seed + repeat_idx
+        current_fewshot_seed = base_fewshot_seed + repeat_idx
+        
         print(f"\n{'='*80}")
         print(f"Running repeat {repeat_idx + 1}/{num_repeats}")
+        print(f"Seeds: random={current_random_seed}, numpy={current_numpy_seed}, "
+              f"torch={current_torch_seed}, fewshot={current_fewshot_seed}")
         print(f"{'='*80}\n")
         
-        # Run evaluation
+        # Run evaluation with unique seeds for this repeat
         results = lm_eval.simple_evaluate(
             model=lm,
             tasks=[task],
@@ -187,6 +212,11 @@ def run_evaluation_repeats(
             log_samples=True,
             apply_chat_template=True,
             fewshot_as_multiturn=False,
+            # Different seeds for each repeat
+            random_seed=current_random_seed,
+            numpy_random_seed=current_numpy_seed,
+            torch_random_seed=current_torch_seed,
+            fewshot_random_seed=current_fewshot_seed,
         )
         
         # Get samples and metrics from results
@@ -206,7 +236,11 @@ def run_evaluation_repeats(
             gen_kwargs=gen_kwargs,
             limit=limit,
             kv_cache=kv_cache,
-            batch_size=batch_size
+            batch_size=batch_size,
+            random_seed=current_random_seed,
+            numpy_seed=current_numpy_seed,
+            torch_seed=current_torch_seed,
+            fewshot_seed=current_fewshot_seed
         )
         
         # Save individual repeat result
