@@ -41,6 +41,42 @@ If you are also using a Slurm-managed cluster, these commands will be helpful:
   nvidia-smi
   ```
 
+## Prerequisites
+
+### 1. Request Model Access
+
+Before running evaluations, you need to request access to the following models/datasets on Hugging Face:
+
+- [meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) (for potential future use)
+- [meta-llama/Llama-3.3-70B-Instruct](https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct)
+- [Idavidrein/gpqa](https://huggingface.co/datasets/Idavidrein/gpqa)
+
+Visit each link above, log in to your Hugging Face account, and click the "Request Access" button. Approval is usually granted within a few minutes to hours.
+
+### 2. Set Up Hugging Face Token
+
+After gaining access, you need to authenticate with your Hugging Face token:
+
+**Option 1: Use CLI login**
+```bash
+huggingface-cli login
+```
+This will save your token to `~/.cache/huggingface/token` permanently.
+
+**Option 2: Add to your shell profile**
+```bash
+# Add to ~/.bashrc for persistent authentication
+echo 'export HF_TOKEN="your_token_here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**Option 3: Temporary authentication (current session only)**
+```bash
+export HF_TOKEN="your_token_here"
+```
+
+You can find your token at: https://huggingface.co/settings/tokens
+
 ## Running Evaluations
 
 After requesting a compute node, you need to:
@@ -94,7 +130,11 @@ Run the following commands:
 ./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "6,7" "10" "8"
 ```
 
-(To get a new computing node, refer to the Advanced Tips below)
+---
+
+**Note:** If you need to get a new computing node, see the Advanced Tips section below.
+
+---
 
 ### 3. KIVI - K2V2
 
