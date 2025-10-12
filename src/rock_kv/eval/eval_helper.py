@@ -211,7 +211,7 @@ def run_evaluation_repeats(
             gen_kwargs=gen_kwargs,  # Includes past_key_values (RoCK-KV cache)
             log_samples=True,
             apply_chat_template=True,
-            fewshot_as_multiturn=False,
+            fewshot_as_multiturn=True,  # Each few-shot example as separate conversation turn
             # Different seeds for each repeat
             random_seed=current_random_seed,
             numpy_random_seed=current_numpy_seed,

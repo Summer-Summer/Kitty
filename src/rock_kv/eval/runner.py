@@ -110,7 +110,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
         model_configs["VCache_BitDecoding"] = kv_cache.VCache_BitDecoding
 
     # Set the number of shots for different tasks
-    few_shot_dict = {"mmlu": 4, "gsm8k": 8, "gpqa": 5, "math": 4, "bbh": 3, "aime": 0,}
+    few_shot_dict = {"mmlu": 4, "gsm8k": 8, "gpqa": 5, "math": 4, "bbh": 3}
     for key, value in few_shot_dict.items():
         if key in task:
             num_fewshot = value
@@ -144,9 +144,17 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     #
     # For thinking mode (Qwen3-4B), use sampling parameters from YAML
     # Otherwise use greedy decoding for deterministic evaluation
+    
+    # Set max_new_tokens based on task type
+    # AIME tasks need longer generation for detailed reasoning
+    if "aime24" in task or "aime25" in task:
+        max_new_tokens = 32768
+    else:
+        max_new_tokens = 4096
+    
     gen_kwargs = {
             "past_key_values": kv_cache,  # Use RoCKKV cache if provided
-            "max_new_tokens": 32768,  # Maximum number of new tokens to generate, 32k to prevent over-generation.
+            "max_new_tokens": max_new_tokens,
             "max_length": None,
             # Commenting out these to allow YAML generation_kwargs to take effect
             # "do_sample": False,    # Disable sampling for deterministic evaluation
