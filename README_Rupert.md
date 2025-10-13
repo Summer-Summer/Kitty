@@ -16,6 +16,8 @@ We use Singularity as the container system. During the experimental phase, files
 
 If you are also using a Slurm-managed cluster, these commands will be helpful:
 
+**Note:** We no longer use interactive nodes for running evaluations. The following commands are provided as background knowledge only.
+
 - **Request an interactive node:** 
   ```bash
   srun --ntasks=1 --gres=gpu:8 --cpus-per-task=64 --mem=1024000 --partition=batch --pty /bin/bash
@@ -96,111 +98,18 @@ You can find your token at: https://huggingface.co/settings/tokens
 
 ## Running Evaluations
 
-After requesting a compute node, you need to:
+1. Open `sbatch/run_eval_rupert.sh`
 
-1. Enter the Apptainer container:
+2. Modify the important parameters:
+   - **A. mem** = 500G/1000G (for 70B models, you may need 1T)
+   - **B. Runtime**: Estimate based on the online spreadsheet; for Qwen3-32B we use 250h
+   - **C. --nodelist**: Check hostname availability using `sinfo` to find which host is idle
+   - **D. MODEL, TASK_NAME, NUM_REPEATS, BATCH_SIZE**: Modify as needed
+   - **E. Debug mode**: Set `DEBUG=1` to run only 3 questions for testing
+   - **F. Experiment configuration**: Comment out experiments in `EXPERIMENTS` array to control how many experiments to run
+
+3. Submit the job from the login node:
    ```bash
-   apptainer exec --nv \
-   --bind /home/$USER:/workspace \
-   --bind /data:/data \
-   --overlay build/kchanboost.img build/kchanboost.sif bash
+   sbatch ~/RoCK-KV/sbatch/run_eval_rupert.sh
    ```
-
-2. Navigate to the evaluation scripts folder:
-   ```bash
-   cd /workspace/RoCK-KV/eval_scripts
-   ```
-
-3. Run experiments with Qwen3-32B:
-   
-   You may need to modify `accuracy_eval5.sh` and use terminal commands to run different experimental configurations in batches.
-
-## Experimental Tasks
-
-### 1. Baseline (FP16)
-
-First, edit `accuracy_eval5.sh`:
-- **Uncomment** the `run_hf_baseline` line
-- **Comment out** all `run_single_exp` lines
-- Save the changes
-
-Run the following commands:
-```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "0,1" "10" "8"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "2,3" "10" "8"
-```
-
-**Note:** After submitting any shell script, you can safely press `Ctrl + C` to exit - the task will continue running in the background. Logs can be found in `eval_scripts/eval_logs`, and results will be saved in `eval_scripts/eval_results`.
-
-### 2. KIVI - K4V4
-
-Edit `accuracy_eval5.sh`:
-- **Comment out** `run_hf_baseline`
-- **Uncomment** one `run_single_exp` line (the third one, but any will work as long as the parameters are correct)
-- Set the parameters: `sink = 0`, `kbits = 4`, `vbits = 4`, `promote_ratio = 0.0`
-- Keep other parameters unchanged
-- Save the changes
-
-Run the following commands:
-```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "4,5" "10" "8"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "6,7" "10" "8"
-```
-
----
-
-**Note:** If you need to get a new computing node, see the Advanced Tips section below.
-
----
-
-### 3. KIVI - K2V2
-
-Edit `accuracy_eval5.sh`:
-- For `run_single_exp`: set `sink = 0`, `kbits = 2`, `vbits = 2`, `promote_ratio = 0.0`
-- Keep other parameters unchanged
-- Save the changes
-
-Run the following commands:
-```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "0,1" "10" "8"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "2,3" "10" "8"
-```
-
-### 4. KChanBoost-K2V2 (0% Promotion)
-
-Edit `accuracy_eval5.sh`:
-- For `run_single_exp`: set `sink = 32`, `kbits = 2`, `vbits = 2`, `promote_ratio = 0.0`
-- Keep other parameters unchanged
-- Save the changes
-
-Run the following commands:
-```bash
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime24" "4,5" "10" "8"
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "6,7" "10" "8"
-```
-
-## Task Tracking
-
-My habit is to record each submitted task in our online Excel spreadsheet using the format: `IP-GPU_ID`
-
-## Advanced Tips: Running Multiple machines in Parallel
-
-If you want to run 2-3 machines simultaneously, here's a method:
-
-1. Copy the overlay image:
-   ```bash
-   cp build/kchanboost.img build/kchanboost2.img
-   ```
-
-2. When entering the container, mount the new image:
-   ```bash
-   apptainer exec --nv \
-   --bind /home/$USER:/workspace \
-   --bind /data:/data \
-   --overlay build/kchanboost2.img build/kchanboost.sif bash
-   ```
-
-3. Follow the same steps as before.
-
-**Important:** Do not let two nodes execute the same task, otherwise the logs may be overwritten.
 

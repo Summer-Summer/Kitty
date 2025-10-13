@@ -188,7 +188,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     # For DEBUG mode, limit the number of samples
     limit = None
     if DEBUG:
-        limit = 8
+        limit = 3
 
     print("=" * 80)
     print("Evaluating model accuracy on downstream tasks...")
