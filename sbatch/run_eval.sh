@@ -5,11 +5,11 @@
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=500G
-#SBATCH --time=180:00:00
+#SBATCH --time=60:00:00
 #SBATCH --partition=batch
 #SBATCH --output=log/slurm_%j.out
 #SBATCH --error=log/slurm_%j.err
-#SBATCH --nodelist=research-external-03  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
+#SBATCH --nodelist=research-external-15  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
 
 # ============================================================================
 # 配置区域 - 在这里修改参数

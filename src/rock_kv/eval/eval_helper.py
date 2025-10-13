@@ -60,79 +60,53 @@ def print_checkpoint_status(completed_repeats: List[int], num_repeats: int) -> b
 ########################################### Output JSON Builder ###########################################
 
 def build_eval_output(
+    results: Dict,
     task: str,
     repeat_idx: int,
-    all_samples: List[Dict],
-    aggregated_metrics: Dict,
     model: PreTrainedModel,
-    model_configs: Dict,
-    gen_kwargs: Dict,
-    limit: Optional[int],
-    kv_cache: Optional[Any] = None,
-    batch_size: int = 8,
-    random_seed: int = 0,
-    numpy_seed: int = 1234,
-    torch_seed: int = 1234,
-    fewshot_seed: int = 1234
+    model_configs: Dict
 ) -> Dict:
     """
-    Build output dictionary in lm_eval format.
+    Build output dictionary in lm_eval format, following the reference code style.
     
     Args:
+        results: Results dictionary from lm_eval.simple_evaluate
         task: Task name
         repeat_idx: Current repeat index
-        all_samples: List of evaluated samples
-        aggregated_metrics: Aggregated metrics from evaluation
         model: The model being evaluated
         model_configs: Model configuration dictionary
-        gen_kwargs: Generation kwargs (may include past_key_values)
-        limit: Number of samples to evaluate (None for all)
-        kv_cache: Optional RoCK-KV cache object
-        batch_size: Batch size for inference (default: 8)
-        random_seed: Random seed used for Python's random module
-        numpy_seed: Random seed used for numpy
-        torch_seed: Random seed used for torch
-        fewshot_seed: Random seed used for fewshot sampler
     
     Returns:
         Dictionary in lm_eval output format
     """
     cdt_timezone = timezone(timedelta(hours=-5))  # CDT: UTC-5
     
-    output = {
-        "This file is generated_at": datetime.now(cdt_timezone).isoformat(),
-        "repeat_idx": repeat_idx,
-        "tasks": {
-            task: aggregated_metrics
-        },
-        "model_configs": model_configs,
-        "eval_configs": {
-            "model": model.config._name_or_path,
-            "model_args": None,
-            "model_num_parameters": sum(p.numel() for p in model.parameters()),
-            "model_dtype": str(model.dtype),
-            "model_revision": "main",
-            "model_sha": "",
-            "batch_size": batch_size,
-            "batch_sizes": [],
-            "device": str(model.device) if hasattr(model, 'device') else None,
-            "use_cache": None,
-            "limit": limit,
-            "bootstrap_iters": 100000,
-            "gen_kwargs": {k: v for k, v in gen_kwargs.items() if k != "past_key_values"},
-            "random_seed": random_seed,
-            "numpy_seed": numpy_seed,
-            "torch_seed": torch_seed,
-            "fewshot_seed": fewshot_seed,
-        },
-        "samples": {
-            task: all_samples
-        }
-    }
+    output = {}
+    output["This file is generated_at"] = datetime.now(cdt_timezone).isoformat()
+    output["repeat_idx"] = repeat_idx
+    output["tasks"] = results['results']
+    output["model_configs"] = model_configs
+    output["eval_configs"] = results["config"]
     
-    # Handle KV cache serialization
-    if gen_kwargs.get("past_key_values") is not None:
-        output["eval_configs"]["gen_kwargs"]["past_key_values"] = kv_cache.cache_implementation if kv_cache else None
+    # Dealing with corner cases, where model configs can not be serialized.
+    output["eval_configs"]["model_dtype"] = str(model.dtype)
+    if output["eval_configs"]["gen_kwargs"]["past_key_values"] is not None:
+        output["eval_configs"]["gen_kwargs"]["past_key_values"] = output["eval_configs"]["gen_kwargs"]["past_key_values"].cache_implementation
+    
+    if "samples" in results:
+        # Extract shared gen_kwargs from the first sample
+        _, first_task_samples = next(iter(results["samples"].items()))
+        first_task_sample = first_task_samples[0]
+        arguments_from_samples = first_task_sample["arguments"][0][1]
+        if arguments_from_samples["past_key_values"] is not None:
+            arguments_from_samples["past_key_values"] = arguments_from_samples["past_key_values"].cache_implementation
+        output["eval_configs"]["arguments_from_samples"] = arguments_from_samples
+        
+        # Exclude the gen_kwargs from the output of each sample
+        for task_name, task_samples in results["samples"].items():
+            for sample in task_samples:
+                sample["arguments"] = sample["arguments"][0][0]
+        output["samples"] = results["samples"]
     
     return output
 
@@ -232,28 +206,15 @@ def run_evaluation_repeats(
             fewshot_random_seed=current_fewshot_seed,
         )
         
-        # Get samples and metrics from results
-        all_samples = results.get("samples", {}).get(task, [])
-        aggregated_metrics = results.get("results", {}).get(task, {})
-        
         print(f"\n[Completed] All samples evaluated for repeat {repeat_idx}")
         
         # Build output in lm_eval format
         output = build_eval_output(
+            results=results,
             task=task,
             repeat_idx=repeat_idx,
-            all_samples=all_samples,
-            aggregated_metrics=aggregated_metrics,
             model=model,
-            model_configs=model_configs,
-            gen_kwargs=gen_kwargs,
-            limit=limit,
-            kv_cache=kv_cache,
-            batch_size=batch_size,
-            random_seed=current_random_seed,
-            numpy_seed=current_numpy_seed,
-            torch_seed=current_torch_seed,
-            fewshot_seed=current_fewshot_seed
+            model_configs=model_configs
         )
         
         # Save individual repeat result
