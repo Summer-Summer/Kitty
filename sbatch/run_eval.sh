@@ -24,7 +24,7 @@ export NUM_REPEATS=10
 export BATCH_SIZE=6
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
-export DEBUG=1
+export DEBUG=0
 
 # 环境变量
 export TORCH_CUDA_ARCH_LIST="9.0"
@@ -52,14 +52,22 @@ APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
 
 # GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
 declare -a EXPERIMENTS=(
+    # AIME24 Baseline
     "0    |  run_hf_baseline"
-    # "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       8       |      0.0"
-    # "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
-    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       8       |      0.0"
-    # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       8       |      0.0"
-    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.2"
-    # "6    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.5"
-    # "7    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      1.0"
+    # AIME24 KIVI K4V4
+    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       4       |      0.0"
+    # AIME24 KIVI K2V2
+    "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
+    # AIME24 sinkKIVI K4V2
+    "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       4       |      0.0"
+    # AIME24 sinkKIVI K2V4
+    "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       4       |      0.0"
+    # AIME24 sinkKIVI K2V2
+    "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.0"
+    # AIME24 sinkKIVI K2.2V2
+    "6    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.1"
+    # AIME24 sinkKIVI K2.4V2
+    "7    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.2"
 )
 
 # ============================================================================
@@ -117,7 +125,7 @@ for exp in "${EXPERIMENTS[@]}"; do
     apptainer exec --nv \
         --bind $HOME:/workspace \
         --bind /data:/data \
-        --overlay "$APPTAINER_IMG" \
+        --overlay "$APPTAINER_IMG":ro \
         "$APPTAINER_SIF" \
         bash -c "
             cd /workspace/RoCK-KV/eval_scripts
