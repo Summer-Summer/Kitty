@@ -48,7 +48,7 @@ source ./utils.sh
 # run_hf_baseline
 # run_single_exp  "Accuracy_Across_Ratios"  0     0            4      4      8              0.0
 # run_single_exp  "Accuracy_Across_Ratios"  0     0            2      2      8              0.0
-run_single_exp  "Accuracy_Across_Ratios"  32    2            2      2      4              0.2
+run_single_exp  "Accuracy_Across_Ratios"  32    2            2     2      4              0.2
 # run_single_exp  "Accuracy_Across_Ratios"  32    0            2      4      8              0.0 
 # run_single_exp  "Accuracy_Across_Ratios"  32    0            4      2      8              0.0
 

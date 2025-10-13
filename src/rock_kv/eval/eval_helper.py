@@ -185,6 +185,19 @@ def run_evaluation_repeats(
     Returns:
         Updated list of all results (same as all_results parameter)
     """
+    # Task-specific configuration (same for all repeats)
+    task_lower = task.lower()
+    if "aime" in task_lower:
+        # AIME: apply chat template, but not fewshot_as_multiturn
+        apply_chat = True
+        fewshot_multiturn = False
+        print(f"Task config: {task} (apply_chat_template=True, fewshot_as_multiturn=False)")
+    else:
+        # All other tasks: disable both
+        apply_chat = False
+        fewshot_multiturn = False
+        print(f"Task config: {task} (apply_chat_template=False, fewshot_as_multiturn=False)")
+    
     for repeat_idx in range(num_repeats):
         if repeat_idx in completed_repeats:
             continue
@@ -210,8 +223,8 @@ def run_evaluation_repeats(
             batch_size=batch_size,
             gen_kwargs=gen_kwargs,  # Includes past_key_values (RoCK-KV cache)
             log_samples=True,
-            apply_chat_template=True,
-            fewshot_as_multiturn=True,  # Each few-shot example as separate conversation turn
+            apply_chat_template=apply_chat,
+            fewshot_as_multiturn=fewshot_multiturn,
             # Different seeds for each repeat
             random_seed=current_random_seed,
             numpy_random_seed=current_numpy_seed,
