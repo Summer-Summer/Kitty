@@ -1,15 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=rock_kv_eval
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --gres=gpu:8
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=500G
-#SBATCH --time=200:00:00
-#SBATCH --partition=batch
-#SBATCH --output=log/slurm_%j.out
-#SBATCH --error=log/slurm_%j.err
-#SBATCH --nodelist=research-external-14  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
+# 在后台运行的版本 - 可以安全关闭终端
+# 使用方法: 
+#   nohup bash run_eval_background.sh > run_eval.out 2>&1 &
+# 或者:
+#   bash run_eval_background.sh  # 会自动在后台运行
 
 # ============================================================================
 # 配置区域 - 在这里修改参数
@@ -19,9 +13,9 @@
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
 export MODEL="Qwen/Qwen3-8B"
-export TASK_NAME="aime24"
-export NUM_REPEATS=10
-export BATCH_SIZE=6
+export TASK_NAME="gpqa_diamond_cot_n_shot"
+export NUM_REPEATS=5
+export BATCH_SIZE=32
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
@@ -34,20 +28,11 @@ export HF_HOME=/workspace/.cache/huggingface
 APPTAINER_SIF="$HOME/RoCK-KV/build/kchanboost.sif"
 APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
 
+# 日志文件
+MASTER_LOG="$HOME/RoCK-KV/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
+
 # ============================================================================
 # 实验配置 - 8个GPU上运行的8个不同配置
-# ============================================================================
-# 参考 accuracy_eval5.sh 中的调用方式:
-#   run_hf_baseline
-#   run_single_exp  "label"  sink  channel_sel  kbits  vbits  promote_bit  promote_ratio
-#
-# channel_selection: (0) Random  (1) Variance  (2) Magnitude  (3) RoPE-aware
-# 当前所有实验统一使用 channel_sel=2 (Magnitude-based)
-#
-# 注意：
-# 1. GPU可以是单个(0)或多个(0,1)，多GPU时会使用tensor parallel
-# 2. 如果只运行部分GPU，注释掉不需要的行即可
-# 3. 可以在同一节点多次提交，只要GPU_ID不重复
 # ============================================================================
 
 # GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
@@ -71,19 +56,38 @@ declare -a EXPERIMENTS=(
 )
 
 # ============================================================================
-# 主程序 - 通常不需要修改
+# 主程序
 # ============================================================================
 
+# 如果不是在后台运行，自动转到后台
+if [[ ! $- =~ i ]] || [ -t 0 ]; then
+    if [ -z "$BACKGROUND_MODE" ]; then
+        export BACKGROUND_MODE=1
+        mkdir -p "$HOME/RoCK-KV/log"
+        echo "Starting in background mode..."
+        echo "Master log: $MASTER_LOG"
+        echo "Use 'tail -f $MASTER_LOG' to monitor progress"
+        nohup bash "$0" "$@" > "$MASTER_LOG" 2>&1 &
+        MASTER_PID=$!
+        echo "Master process PID: $MASTER_PID"
+        echo ""
+        echo "Commands:"
+        echo "  Monitor: tail -f $MASTER_LOG"
+        echo "  Stop:    kill $MASTER_PID"
+        exit 0
+    fi
+fi
+
 echo "=========================================="
-echo "SLURM Job Information"
+echo "RoCK-KV Evaluation (Background Mode)"
 echo "=========================================="
-echo "Job ID: $SLURM_JOB_ID"
-echo "Node: $SLURM_NODELIST"
+echo "Node: $(hostname)"
 echo "Start: $(date)"
 echo "Model: $MODEL"
 echo "Task: $TASK_NAME"
 echo "Num Repeats: $NUM_REPEATS"
 echo "Batch Size: $BATCH_SIZE"
+echo "Master PID: $$"
 echo "=========================================="
 echo ""
 
@@ -121,7 +125,6 @@ for exp in "${EXPERIMENTS[@]}"; do
     fi
     
     # 在Apptainer中运行（后台）
-    # 进入eval_scripts目录，source utils.sh，然后调用相应函数
     apptainer exec --nv \
         --bind $HOME:/workspace \
         --bind /data:/data \
@@ -146,9 +149,8 @@ for exp in "${EXPERIMENTS[@]}"; do
             # Source utils.sh
             source ./utils.sh
             
-            # 调用函数（移除wait以真正后台运行）
+            # 调用函数
             if [ '${FUNC_NAME}' = 'run_hf_baseline' ]; then
-                # 修改函数，移除wait
                 run_hf_baseline() {
                   local repeats=\${NUM_REPEATS:-1}
                   local debug_flag=''
@@ -174,7 +176,6 @@ for exp in "${EXPERIMENTS[@]}"; do
                 }
                 run_hf_baseline
             else
-                # run_single_exp
                 run_single_exp() {
                   local label=\$1
                   local sink=\$2
