@@ -13,8 +13,8 @@
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
 export MODEL="Qwen/Qwen3-8B"
-export TASK_NAME="gpqa_diamond_cot_n_shot"
-export NUM_REPEATS=5
+export TASK_NAME="humaneval_instruct"
+export NUM_REPEATS=10
 export BATCH_SIZE=32
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
