@@ -8,6 +8,7 @@ import math
 
 import torch
 from transformers.cache_utils import CacheConfig, Cache
+from transformers.configuration_utils import PretrainedConfig
 
 
 @dataclass
@@ -47,12 +48,20 @@ class KVCache_Layer:
     The pages are statically allocated in our current version.
     To Do: Multi-GPU Inference.
     """
-    def __init__(self, MAX_BS: int, MAX_LEN: int, PAGE_SIZE: int, H_KV: int, D: int, D_BOOSTED: int, S: int):
+    def __init__(self, MAX_BS: int, MAX_LEN: int, H_KV: int, D: int, D_BOOSTED: int, PAGE_SIZE: int, S: int):
         ######################################### Quantized Pages #########################################
         assert PAGE_SIZE % 128 == 0, "PAGE_SIZE must be a multiple of 128."
         self.BITS_PER_BYTE = 8
         self.HIGH_BIT = 4
         self.LOW_BIT = 2
+        #
+        self.MAX_BS = MAX_BS
+        self.MAX_LEN = MAX_LEN
+        self.H_KV = H_KV
+        self.D = D
+        self.D_BOOSTED = D_BOOSTED
+        self.PAGE_SIZE = PAGE_SIZE
+        self.S = S
         # Initialize Key Cache
         self.MAX_PAGE = math.ceil(MAX_LEN / PAGE_SIZE)
         self.D_hi = D_BOOSTED
@@ -115,13 +124,36 @@ class KVCache_Layer:
 
 class KChanBoostCache(Cache):
     """
-    Base class for KChanBoost KV caches.
+    Class for KChanBoost KV caches.
     """
-
-    def __init__(self):
+    def __init__(
+        self,
+        config: PretrainedConfig,
+        kchanboost_config: KChanBoostCacheConfig,
+        max_batch_size: int,
+        max_length: int,
+    ) -> None:
         super().__init__()
-        self.key_cache: list[KVCachePerLayer] = []
-        self.value_cache: list[KVCachePerLayer] = []
+        self.kv_cache: list[KVCache_Layer] = []
+        # Reading the model configurations
+        self.num_hidden_layers = config.num_hidden_layers
+        self.head_dim = config.head_dim
+        self.num_key_value_heads = config.num_key_value_heads
+        ######################## KChanBoost Specific Configurations ########################
+        self.page_size = 128                    # PAGE_SIZE=128
+        self.d_boosted = self.head_dim // 4     # 25% channels are boosted to INT4
+        self.sink_length = 32                   # SINK_LENGTH=32
+        # Initialize KV Cache for each layer
+        for _ in range(self.num_hidden_layers):
+            self.kv_cache.append(KVCache_Layer(
+                MAX_BS = max_batch_size,
+                MAX_LEN = max_length,
+                H_KV = self.num_key_value_heads,
+                D = self.head_dim,
+                D_BOOSTED = self.d_boosted,
+                PAGE_SIZE = self.page_size,
+                S = self.sink_length
+            ))
 
     def update(
         self,
@@ -149,10 +181,10 @@ class KChanBoostCache(Cache):
         """
         raise NotImplementedError("Make sure to implement `update` in a subclass.")
 
-    def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
+    def get_seq_length(self, layer_idx: int = 0) -> int:
         """Returns the sequence length of the cached states. A layer index can be optionally passed."""
-        # TODO: deprecate this function in favor of `cache_position`
-        raise NotImplementedError("Make sure to implement `get_seq_length` in a subclass.")
+        KVCache_Layer = self.kv_cache[layer_idx]
+        return KVCache_Layer.PageCount_K * KVCache_Layer.PAGE_SIZE + KVCache_Layer.Sink_Count + KVCache_Layer.Q_Buffer_Count_K
 
 
 
