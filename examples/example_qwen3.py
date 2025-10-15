@@ -1,6 +1,8 @@
 import torch
 from transformers import AutoTokenizer
-from kchanboost.models.qwen3 import Qwen3Config, Qwen3ForCausalLM
+from transformers.models.qwen3 import Qwen3Config
+#from transformers.models.qwen3 import Qwen3ForCausalLM
+from kchanboost.models.qwen3 import Qwen3ForCausalLM
 #
 from rock_kv.eval.runner import release_model_memory, test_model_generate
 from rock_kv.cli.utils_cli import update_parser, get_prompt

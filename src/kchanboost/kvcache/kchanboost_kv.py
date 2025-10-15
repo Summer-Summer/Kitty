@@ -4,44 +4,20 @@
 from typing import Optional, Any
 from dataclasses import dataclass
 import argparse
+import math
 
 import torch
-from transformers.cache_utils import CacheConfig, DynamicCache
-
-from .utils_quant import build_promote_mask, fake_quant_groupwise_lastdim
+from transformers.cache_utils import CacheConfig, Cache
 
 
 @dataclass
-class RoCKKVCacheConfig(CacheConfig):
+class KChanBoostCacheConfig(CacheConfig):
     """
-    Configuration class for RoCK-KV cache settings.
+    Configuration class for KChanBoost KV cache settings.
+    """
 
-    Attributes:
-        nbits (`Optional[int]`, *optional*, defaults to 4):
-            Number of bits, can be 2 or 4 for the `quanto` backend and one of [1, 2, 3, 4, 8] for the `HQQ` backend. Defaults to 2.
-    """
-    def __init__(
-        self,
-        sink_length: int = 32,
-        buffer_length: int = 128,
-        group_size: int = 128,
-        kbits: int = 2,
-        vbits: int = 2,
-        promote_ratio: float = 0.1,
-        promote_bit: int = 4,
-        channel_selection: int = 3,               # -1: Unspecified, 0: Random, 1: Variance-based, 2: Magnitude-based, 3: RoPE-aware
-        VCache_BitDecoding: bool = False,         # The behavior of Value Cache, set to True means BitDecoding, otherwise KIVI Style Value Cache
-    ):
-        super().__init__("rock_kv")
-        self.sink_length = sink_length
-        self.buffer_length = buffer_length
-        self.group_size = group_size
-        self.kbits = kbits
-        self.vbits = vbits
-        self.promote_ratio = promote_ratio
-        self.promote_bit = promote_bit
-        self.channel_selection = channel_selection
-        self.VCache_BitDecoding = VCache_BitDecoding
+    def __init__(self,) -> None:
+        super().__init__("kchanboost_kv")
         #
         self.validate()
 
@@ -51,86 +27,139 @@ class RoCKKVCacheConfig(CacheConfig):
             "Some of the keys in `cache_config` are defined incorrectly. `{key}` should be {correct_value}` "
             "but found {found_value}"
         )
+        # Add validation checks for any parameters if needed
+        pass
+        """
         if self.channel_selection not in [0,1,2,3]:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="channel_selection",
-                    correct_value="0 or 1 or 2 or 3",
-                    found_value=self.channel_selection,
-                ),
-            )
-        if self.buffer_length < 0:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="buffer_length",
-                    correct_value="larger than 0",
-                    found_value=self.buffer_length,
-                ),
-            )
-        if self.sink_length < 0:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="sink_length",
-                    correct_value="larger than 0",
-                    found_value=self.sink_length,
-                ),
-            )
-        if self.group_size <= 0:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="group_size",
-                    correct_value="larger than 0",
-                    found_value=self.group_size,
-                ),
-            )
-        if self.kbits < 1 or self.kbits > 16:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="kbits",
-                    correct_value="1 to 16",
-                    found_value=self.kbits,
-                ),
-            )
-        if self.vbits < 1 or self.vbits > 16:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="vbits",
-                    correct_value="1 to 16",
-                    found_value=self.vbits,
-                ),
-            )
-        if self.promote_ratio < 0.0 or self.promote_ratio > 1.0:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="promote_ratio",
-                    correct_value="between 0.0 and 1.0",
-                    found_value=self.promote_ratio,
-                ),
-            )
-        if self.promote_bit < self.kbits or self.promote_bit > 16:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="promote_bit",
-                    correct_value=f"between {self.kbits} and 16",
-                    found_value=self.promote_bit,
-                ),
-            )
-        if self.VCache_BitDecoding not in [False]:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="VCache_BitDecoding",
-                    correct_value="False",
-                    found_value=self.VCache_BitDecoding,
-                ),
-            )
-        if self.group_size > self.buffer_length or self.buffer_length % self.group_size != 0:
-            raise ValueError(
-                incorrect_arg_msg.format(
-                    key="group_size",
-                    correct_value="a factor of buffer_length ({})".format(self.buffer_length),
-                    found_value=self.group_size,
-                ),
-            )
+        raise ValueError(
+            incorrect_arg_msg.format(
+                key="channel_selection",
+                correct_value="0 or 1 or 2 or 3",
+                found_value=self.channel_selection,
+            ),
+        )
+        """
+
+
+class KVCache_Layer:
+    """
+    KV Cache for a single layer.
+    The pages are statically allocated in our current version.
+    To Do: Multi-GPU Inference.
+    """
+    def __init__(self, MAX_BS: int, MAX_LEN: int, PAGE_SIZE: int, H_KV: int, D: int, D_BOOSTED: int, S: int):
+        ######################################### Quantized Pages #########################################
+        assert PAGE_SIZE % 128 == 0, "PAGE_SIZE must be a multiple of 128."
+        self.BITS_PER_BYTE = 8
+        self.HIGH_BIT = 4
+        self.LOW_BIT = 2
+        # Initialize Key Cache
+        self.MAX_PAGE = math.ceil(MAX_LEN / PAGE_SIZE)
+        self.D_hi = D_BOOSTED
+        self.D_lo = D - D_BOOSTED
+        self.bytes_per_page_K = (H_KV * PAGE_SIZE * self.D_hi * self.HIGH_BIT // self.BITS_PER_BYTE    # INT4
+                                + H_KV * PAGE_SIZE * self.D_lo * self.LOW_BIT // self.BITS_PER_BYTE    # INT2    
+                                + H_KV * D)                                                            # ch_idx for channel reordering
+        self.KeyCache = torch.zeros(
+            (MAX_BS, self.MAX_PAGE, self.bytes_per_page_K), dtype=torch.uint8, device='cuda')
+        self.KeyCache_metadata = torch.zeros( # scale & zero_point
+            (MAX_BS, self.MAX_PAGE, H_KV, D, 2), dtype=torch.half, device='cuda')
+        # Initialize Value Cache
+        self.bytes_per_page_V = H_KV * PAGE_SIZE * D * self.LOW_BIT // self.BITS_PER_BYTE              # INT2
+        self.ValueCache = torch.zeros(
+            (MAX_BS, self.MAX_PAGE, self.bytes_per_page_V), dtype=torch.uint8, device='cuda')
+        self.ValueCache_metadata = torch.zeros(         # scale & zero_point
+            (MAX_BS, self.MAX_PAGE, H_KV, PAGE_SIZE, 2), dtype=torch.half, device='cuda')
+        # Initialize Page Table
+        self.PageTable_K = torch.zeros(
+            (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
+        self.PageTable_K_metadata = torch.zeros(
+            (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
+        self.PageTable_V = torch.zeros(
+            (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
+        self.PageTable_V_metadata = torch.zeros(
+            (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
+        # The number of pages used in each batch
+        self.PageCount_K = 0
+        self.PageCount_V = 0
+        # Filling the PTR to the page table
+        for b in range(MAX_BS):
+            for p in range(self.MAX_PAGE):
+                self.PageTable_K[b, p] = self.KeyCache[b, p].data_ptr()
+                self.PageTable_V[b, p] = self.ValueCache[b, p].data_ptr()
+                self.PageTable_K_metadata[b, p] = self.KeyCache_metadata[b, p].data_ptr()
+                self.PageTable_V_metadata[b, p] = self.ValueCache_metadata[b, p].data_ptr()
+        ############################################## Sink ##############################################
+        self.Sink_Buffer_K = torch.zeros(
+            (MAX_BS, H_KV, S, D), dtype=torch.float16, device='cuda')
+        self.Sink_Buffer_V = torch.zeros(
+            (MAX_BS, H_KV, S, D), dtype=torch.float16, device='cuda')
+        self.Sink_Count = 0
+        ############################################ Q-Buffer ############################################
+        self.Q_Buffer_K = torch.zeros(
+            (MAX_BS, H_KV, PAGE_SIZE, D), dtype=torch.float16, device='cuda')
+        self.Q_Buffer_V = torch.zeros(
+            (MAX_BS, H_KV, PAGE_SIZE, D), dtype=torch.float16, device='cuda')
+        self.Q_Buffer_Count_K = 0
+        self.Q_Buffer_Count_V = 0
+        ####################################### Local (Value Cache) ######################################
+        self.Local_Buffer_V = torch.zeros(
+            (MAX_BS, H_KV, PAGE_SIZE, D),
+            dtype=torch.float16,
+            device='cuda'
+        )
+        self.Is_Full_Local_V = False
+        self.Write_Offset_Local_V = 0
+
+        
+
+class KChanBoostCache(Cache):
+    """
+    Base class for KChanBoost KV caches.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.key_cache: list[KVCachePerLayer] = []
+        self.value_cache: list[KVCachePerLayer] = []
+
+    def update(
+        self,
+        key_states: torch.Tensor,
+        value_states: torch.Tensor,
+        layer_idx: int,
+        cache_kwargs: Optional[dict[str, Any]] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Updates the cache with the new `key_states` and `value_states` for the layer `layer_idx`.
+
+        Parameters:
+            key_states (`torch.Tensor`):
+                The new key states to cache.
+            value_states (`torch.Tensor`):
+                The new value states to cache.
+            layer_idx (`int`):
+                The index of the layer to cache the states for.
+            cache_kwargs (`dict[str, Any]`, `optional`):
+                Additional arguments for the cache subclass. These are specific to each subclass and allow new types of
+                cache to be created.
+
+        Return:
+            A tuple containing the updated key and value states.
+        """
+        raise NotImplementedError("Make sure to implement `update` in a subclass.")
+
+    def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
+        """Returns the sequence length of the cached states. A layer index can be optionally passed."""
+        # TODO: deprecate this function in favor of `cache_position`
+        raise NotImplementedError("Make sure to implement `get_seq_length` in a subclass.")
+
+
+
+
+
+
+
         
 class RoCKKVCache(DynamicCache):
     """

@@ -19,6 +19,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Adapted from HuggingFace Qwen3 implementation.
+# Author: Haojun Xia (xhjustc@gmail.com)
+
 from typing import Callable, Optional, Union
 
 import torch
@@ -43,7 +46,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
 from transformers.utils import LossKwargs, auto_docstring, can_return_tuple, logging
 
-from .configuration_qwen3 import Qwen3Config
+from transformers.models.qwen3 import Qwen3Config
 
 
 logger = logging.get_logger(__name__)
@@ -199,12 +202,12 @@ class Qwen3Attention(nn.Module):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)       # (B, T, H_Q, D) -> (B, H_Q, T, D)
+        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)         # (B, T, H_KV, D) -> (B, H_KV, T, D)
+        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)                    # (B, T, H_KV, D) -> (B, H_KV, T, D)
 
         cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)             # (B, H, T, D)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
