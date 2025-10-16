@@ -49,6 +49,8 @@ pip install "lm-eval[math]"
 # 安装KChanBoost
 cd /workspace/RoCK-KV/
 pip install -e .
+# 安装seaborn用于数据可视化
+pip install seaborn
 ```
 
 
