@@ -120,8 +120,8 @@ class KVCache_Layer:
         self.Local_Count_V = 0
         self.Write_Offset_Local_V = 0
         # Legacy for compatibility of prefills
-        self.key_states = None
-        self.value_states = None
+        self.key_states: Optional[torch.Tensor] = None
+        self.value_states: Optional[torch.Tensor] = None
 
         
 
@@ -196,34 +196,66 @@ class KChanBoostCache(Cache):
             "Decode: key_states and value_states should have sequence length of 1."
         #  
         # Update the KV Cache
-        if kvcache.Sink_Count < kvcache.S:
-            idx = kvcache.Sink_Count
-            kvcache.Sink_Buffer_K[:,:,idx,:] = key_states[:, :, 0, :].contiguous()
-            kvcache.Sink_Buffer_V[:,:,idx,:] = value_states[:, :, 0, :].contiguous()
-            kvcache.Sink_Count += 1
-        else:
-            # Key Cache with Q-Buffer
-            assert kvcache.Q_Buffer_Count_K < kvcache.Q_Buffer_K.size(2)
-            kvcache.Q_Buffer_K[:, :, kvcache.Q_Buffer_Count_K, :] = key_states[:, :, 0, :].contiguous()
-            kvcache.Q_Buffer_Count_K += 1
-            # Value Cache with Local Buffer + Q-Buffer
-            assert kvcache.Local_Count_V <= kvcache.PAGE_SIZE 
-            if kvcache.Local_Count_V < kvcache.PAGE_SIZE:
-                kvcache.Local_Buffer_V[:,:,kvcache.Local_Count_V,:] = value_states[:, :, 0, :].contiguous()
-                kvcache.Local_Count_V += 1
-            else:   # Local Buffer is full, Move the evicted token to Q-Buffer
-                assert kvcache.Q_Buffer_Count_V < kvcache.Q_Buffer_V.size(2)
-                kvcache.Q_Buffer_V[:, :, kvcache.Q_Buffer_Count_V, :] = kvcache.Local_Buffer_V[:, :, kvcache.Write_Offset_Local_V, :].contiguous()
-                kvcache.Q_Buffer_Count_V += 1
-                # Write the new token to Local Buffer & update the write offset
-                kvcache.Local_Buffer_V[:,:,kvcache.Write_Offset_Local_V,:] = value_states[:, :, 0, :].contiguous()
-                kvcache.Write_Offset_Local_V = (kvcache.Write_Offset_Local_V + 1) % kvcache.PAGE_SIZE
+        with torch.no_grad():
+            if kvcache.Sink_Count < kvcache.S:
+                idx = kvcache.Sink_Count
+                kvcache.Sink_Buffer_K[:,:,idx,:] = key_states[:, :, 0, :].contiguous()
+                kvcache.Sink_Buffer_V[:,:,idx,:] = value_states[:, :, 0, :].contiguous()
+                kvcache.Sink_Count += 1
+            else:
+                # Key Cache with Q-Buffer
+                assert kvcache.Q_Buffer_Count_K < kvcache.Q_Buffer_K.size(2)
+                kvcache.Q_Buffer_K[:, :, kvcache.Q_Buffer_Count_K, :] = key_states[:, :, 0, :].contiguous()
+                kvcache.Q_Buffer_Count_K += 1
+                # Value Cache with Local Buffer + Q-Buffer
+                assert kvcache.Local_Count_V <= kvcache.PAGE_SIZE 
+                if kvcache.Local_Count_V < kvcache.PAGE_SIZE:
+                    kvcache.Local_Buffer_V[:,:,kvcache.Local_Count_V,:] = value_states[:, :, 0, :].contiguous()
+                    kvcache.Local_Count_V += 1
+                else:   # Local Buffer is full, Move the evicted token to Q-Buffer
+                    assert kvcache.Q_Buffer_Count_V < kvcache.Q_Buffer_V.size(2)
+                    kvcache.Q_Buffer_V[:, :, kvcache.Q_Buffer_Count_V, :] = kvcache.Local_Buffer_V[:, :, kvcache.Write_Offset_Local_V, :].contiguous()
+                    kvcache.Q_Buffer_Count_V += 1
+                    # Write the new token to Local Buffer & update the write offset
+                    kvcache.Local_Buffer_V[:,:,kvcache.Write_Offset_Local_V,:] = value_states[:, :, 0, :].contiguous()
+                    kvcache.Write_Offset_Local_V = (kvcache.Write_Offset_Local_V + 1) % kvcache.PAGE_SIZE
         return False
 
     def quantize_prefill(self, layer_idx: int = 0) -> None:
         kvcache = self.kv_cache[layer_idx]
-
         #
+        if kvcache.key_states is None or kvcache.value_states is None:
+            raise ValueError("No key_states or value_states to quantize. Please call update() first.")
+        len_prefill = kvcache.key_states.shape[-2]
+        len_sink = min(kvcache.S, len_prefill)
+        assert len_sink >= 0, "Sink length must be greater than or equal to 0."
+        # K Cache
+        len_qbuf_k = max(0, len_prefill - len_sink) % kvcache.PAGE_SIZE
+        pages_k = (len_prefill - len_sink - len_qbuf_k) // kvcache.PAGE_SIZE
+        kvcache.Sink_Buffer_K[:,:,:len_sink,:].copy_(kvcache.key_states[:, :, :len_sink, :].contiguous())
+        kvcache.Sink_Count = len_sink
+        if len_qbuf_k > 0:
+            kvcache.Q_Buffer_K[:,:,:len_qbuf_k,:].copy_(kvcache.key_states[:, :, -len_qbuf_k:, :].contiguous())
+            kvcache.Q_Buffer_Count_K = len_qbuf_k
+        if pages_k > 0:
+            # To Implement
+            pass
+        # V Cache
+        len_local_v = max(0, min(kvcache.PAGE_SIZE, len_prefill - len_sink))
+        len_qbuf_v = max(0, len_prefill - len_sink - len_local_v) % kvcache.PAGE_SIZE
+        pages_v = (len_prefill - len_sink - len_local_v - len_qbuf_v) // kvcache.PAGE_SIZE
+        kvcache.Sink_Buffer_V[:,:,:len_sink,:].copy_(kvcache.value_states[:, :, :len_sink, :].contiguous())
+        assert kvcache.Sink_Count == len_sink
+        if len_local_v > 0:
+            kvcache.Local_Buffer_V[:,:,:len_local_v,:].copy_(kvcache.value_states[:, :, -len_local_v:, :].contiguous())
+            kvcache.Local_Count_V = len_local_v
+        if len_qbuf_v > 0:
+            assert len_local_v > 0, "Local buffer must be filled before using Q-buffer."
+            kvcache.Q_Buffer_V[:,:,:len_qbuf_v,:].copy_(kvcache.value_states[:, :, -len_local_v-len_qbuf_v:-len_local_v, :].contiguous())
+            kvcache.Q_Buffer_Count_V = len_qbuf_v
+        if pages_v > 0:
+            # To Implement
+            pass
         kvcache.key_states = None
         kvcache.value_states = None
         return
