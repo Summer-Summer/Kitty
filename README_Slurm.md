@@ -2,7 +2,7 @@
 
 ### Get the code:
 ```
-git clone https://github.com/Summer-Summer/RoCK-KV.git
+git clone -b jisen_dev https://github.com/Summer-Summer/RoCK-KV.git
 cd RoCK-KV
 git submodule update --init --recursive
 ```
