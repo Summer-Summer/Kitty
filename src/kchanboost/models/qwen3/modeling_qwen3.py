@@ -52,6 +52,10 @@ from transformers.models.qwen3 import Qwen3Config
 logger = logging.get_logger(__name__)
 
 
+# import the kchanboost attention function
+from kchanboost.kvcache.kchanboost_attention import kchanboost_attention_forward
+
+
 @use_kernel_forward_from_hub("RMSNorm")
 class Qwen3RMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
@@ -209,27 +213,36 @@ class Qwen3Attention(nn.Module):
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)             # (B, H, T, D)
 
-        if past_key_value is not None:
-            # sin and cos are specific to RoPE models; cache_position needed for the static cache
-            #cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position, "query_states": query_states}
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        assert past_key_value is not None
+        # sin and cos are specific to RoPE models; cache_position needed for the static cache
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+        IsPrefill = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+        if IsPrefill:                  # Prefill Phase
+            attention_interface: Callable = eager_attention_forward
+            if self.config._attn_implementation != "eager":
+                attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
-        attn_output, attn_weights = attention_interface(
-            self,
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            dropout=0.0 if not self.training else self.attention_dropout,
-            scaling=self.scaling,
-            sliding_window=self.sliding_window,  # diff with Llama
-            **kwargs,
-        )
+            attn_output, attn_weights = attention_interface(
+                self,
+                query_states,
+                key_states,
+                value_states,
+                attention_mask,
+                dropout=0.0 if not self.training else self.attention_dropout,
+                scaling=self.scaling,
+                sliding_window=self.sliding_window,  # diff with Llama
+                **kwargs,
+            )
+            past_key_value.quantize_prefill(self.layer_idx)
+        else:                                           # Decode Phase
+            attn_output, attn_weights = kchanboost_attention_forward(
+                self,
+                query_states,
+                past_key_value[self.layer_idx],
+                scaling=self.scaling,
+            )
+            past_key_value.quantize_decode(self.layer_idx)
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)

@@ -117,8 +117,11 @@ class KVCache_Layer:
             dtype=torch.float16,
             device='cuda'
         )
-        self.Is_Full_Local_V = False
+        self.Local_Count_V = 0
         self.Write_Offset_Local_V = 0
+        # Legacy for compatibility of prefills
+        self.key_states = None
+        self.value_states = None
 
         
 
@@ -161,7 +164,7 @@ class KChanBoostCache(Cache):
         value_states: torch.Tensor,
         layer_idx: int,
         cache_kwargs: Optional[dict[str, Any]] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> bool:
         """
         Updates the cache with the new `key_states` and `value_states` for the layer `layer_idx`.
 
@@ -177,14 +180,66 @@ class KChanBoostCache(Cache):
                 cache to be created.
 
         Return:
-            A tuple containing the updated key and value states.
+            Bool: True if in Prefill phase, False if in Decode phase.
         """
-        raise NotImplementedError("Make sure to implement `update` in a subclass.")
+
+        kvcache = self.kv_cache[layer_idx]
+        Is_Prefill = (kvcache.Sink_Count == 0)
+        # Prefill
+        if Is_Prefill:
+            # Update the KV Cache
+            kvcache.key_states = key_states
+            kvcache.value_states = value_states
+            return True
+        # Decode
+        assert key_states.shape[-2] == 1 and value_states.shape[-2] == 1, \
+            "Decode: key_states and value_states should have sequence length of 1."
+        #  
+        # Update the KV Cache
+        if kvcache.Sink_Count < kvcache.S:
+            idx = kvcache.Sink_Count
+            kvcache.Sink_Buffer_K[:,:,idx,:] = key_states[:, :, 0, :].contiguous()
+            kvcache.Sink_Buffer_V[:,:,idx,:] = value_states[:, :, 0, :].contiguous()
+            kvcache.Sink_Count += 1
+        else:
+            # Key Cache with Q-Buffer
+            assert kvcache.Q_Buffer_Count_K < kvcache.Q_Buffer_K.size(2)
+            kvcache.Q_Buffer_K[:, :, kvcache.Q_Buffer_Count_K, :] = key_states[:, :, 0, :].contiguous()
+            kvcache.Q_Buffer_Count_K += 1
+            # Value Cache with Local Buffer + Q-Buffer
+            assert kvcache.Local_Count_V <= kvcache.PAGE_SIZE 
+            if kvcache.Local_Count_V < kvcache.PAGE_SIZE:
+                kvcache.Local_Buffer_V[:,:,kvcache.Local_Count_V,:] = value_states[:, :, 0, :].contiguous()
+                kvcache.Local_Count_V += 1
+            else:   # Local Buffer is full, Move the evicted token to Q-Buffer
+                assert kvcache.Q_Buffer_Count_V < kvcache.Q_Buffer_V.size(2)
+                kvcache.Q_Buffer_V[:, :, kvcache.Q_Buffer_Count_V, :] = kvcache.Local_Buffer_V[:, :, kvcache.Write_Offset_Local_V, :].contiguous()
+                kvcache.Q_Buffer_Count_V += 1
+                # Write the new token to Local Buffer & update the write offset
+                kvcache.Local_Buffer_V[:,:,kvcache.Write_Offset_Local_V,:] = value_states[:, :, 0, :].contiguous()
+                kvcache.Write_Offset_Local_V = (kvcache.Write_Offset_Local_V + 1) % kvcache.PAGE_SIZE
+        return False
+
+    def quantize_prefill(self, layer_idx: int = 0) -> None:
+        kvcache = self.kv_cache[layer_idx]
+
+        #
+        kvcache.key_states = None
+        kvcache.value_states = None
+        return
+
+    def quantize_decode(self, layer_idx: int = 0) -> None:
+        return
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Returns the sequence length of the cached states. A layer index can be optionally passed."""
         KVCache_Layer = self.kv_cache[layer_idx]
-        return KVCache_Layer.PageCount_K * KVCache_Layer.PAGE_SIZE + KVCache_Layer.Sink_Count + KVCache_Layer.Q_Buffer_Count_K
+        seqlen_K = KVCache_Layer.PageCount_K * KVCache_Layer.PAGE_SIZE + KVCache_Layer.Sink_Count + KVCache_Layer.Q_Buffer_Count_K
+        # For debug
+        seqlen_V = KVCache_Layer.PageCount_V * KVCache_Layer.PAGE_SIZE + KVCache_Layer.Sink_Count + KVCache_Layer.Q_Buffer_Count_V + KVCache_Layer.Local_Count_V
+        assert seqlen_K == seqlen_V, f"seqlen_K: {seqlen_K}, seqlen_V: {seqlen_V}"
+        #
+        return seqlen_K
 
 
 
@@ -328,25 +383,6 @@ class RoCKKVCache(DynamicCache):
                     self.value_cache[layer_idx] = values_to_return
         ####################################################################################################################
         return keys_to_return, values_to_return
-
-    '''
-    def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
-        """Returns the sequence length of the cached states. A layer index can be optionally passed."""
-        if len(self.key_cache) <= layer_idx:
-            return 0
-        # since we cannot get the seq_length of each layer directly and rely on `_seen_tokens` which is
-        # updated every "layer_idx" == 0, this is a hack to get the actual seq_length for the given layer_idx
-        # this part of code otherwise fails when used to verify attn_weight shape in some models
-        return self._seen_tokens if layer_idx == 0 else self._seen_tokens - 1
-
-    def _quantize(self, tensor, axis):
-        """Quantizes a key/value using a defined quantization method."""
-        raise NotImplementedError("Make sure to implement `_quantize` in a subclass.")
-
-    def _dequantize(self, q_tensor):
-        """Dequantizes back the tensor that was quantized by `self._quantize()`"""
-        raise NotImplementedError("Make sure to implement `_dequantize` in a subclass.")
-    '''
 
 
 def get_kvcache_rock_kv(args: argparse.Namespace) -> RoCKKVCache:
