@@ -60,6 +60,8 @@ exit
 ```
 
 ### Testing:
+Just testing, not for formal experiments.
+
 Entering the computing node (interative mode):
 ```
 srun --ntasks=1 \

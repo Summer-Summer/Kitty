@@ -98,6 +98,29 @@ You can find your token at: https://huggingface.co/settings/tokens
 
 ## Running Evaluations
 
+### Running Tasks on Compute Nodes (Recommend):
+If running tasks directly on compute nodes:
+
+1. SSH into the compute node:
+   ```bash
+   ssh username@research-external-xx.cloud.together.ai
+   ```
+
+2. Create a tmux session (automatically named based on node) to prevent task failure due to SSH disconnection:
+   ```bash
+   NODE=$(hostname | grep -oP 'external-\K\d+' || echo "unknown")
+   tmux new -s rock_eval_node${NODE}
+   ```
+
+3. Open `sbatch/run_eval_comp_node.sh` and modify necessary parameters
+
+4. Run the script:
+   ```bash
+   bash sbatch/run_eval_comp_node.sh
+   ```
+
+### Using Slurm Job Submission:
+
 1. Open `sbatch/run_eval_rupert.sh`
 
 2. Modify the important parameters:
