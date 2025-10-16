@@ -4,12 +4,13 @@
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
-#SBATCH --mem=500G
+#SBATCH --mem=900G
 #SBATCH --time=200:00:00
 #SBATCH --partition=batch
 #SBATCH --output=log/slurm_%j.out
 #SBATCH --error=log/slurm_%j.err
-#SBATCH --nodelist=research-external-14  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
+#SBATCH --exclude=research-secure-20
+##SBATCH --nodelist=research-secure-04  # Commented: let SLURM auto-assign from idle nodes
 
 # ============================================================================
 # 配置区域 - 在这里修改参数
@@ -18,10 +19,14 @@
 # 模型和任务配置
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
-export MODEL="Qwen/Qwen3-8B"
-export TASK_NAME="aime24"
-export NUM_REPEATS=10
-export BATCH_SIZE=6
+# These can be overridden by sbatch --export
+export MODEL="${MODEL:-Qwen/Qwen3-8B}"
+export TASK_NAME="${TASK_NAME:-gsm8k_cot_llama}"
+export NUM_REPEATS="${NUM_REPEATS:-3}"
+export BATCH_SIZE="${BATCH_SIZE:-6}"
+export NUM_GPUS="${NUM_GPUS:-1}"
+export EXP_START="${EXP_START:-0}"
+export EXP_END="${EXP_END:-7}"
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
@@ -29,6 +34,7 @@ export DEBUG=0
 # 环境变量
 export TORCH_CUDA_ARCH_LIST="9.0"
 export HF_HOME=/workspace/.cache/huggingface
+export HF_TOKEN="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"
 
 # Apptainer路径
 APPTAINER_SIF="$HOME/RoCK-KV/build/kchanboost.sif"
@@ -49,7 +55,10 @@ APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
 # 2. 如果只运行部分GPU，注释掉不需要的行即可
 # 3. 可以在同一节点多次提交，只要GPU_ID不重复
 # ============================================================================
-
+#3x8 
+## 14B==> 1 nodes
+## 32B ==> 2nodes
+## 70==>4 nodes
 # GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
 declare -a EXPERIMENTS=(
     # Baseline
@@ -95,7 +104,12 @@ declare -a PIDS=()
 echo "Starting 8 parallel experiments in Apptainer..."
 echo ""
 
-# 启动8个GPU任务
+# 启动GPU任务 (配置根据NUM_GPUS和EXP_START/EXP_END调整)
+# Process only experiments in range [EXP_START, EXP_END]
+# Map them to available GPUs 0-7 on this node
+EXP_IDX=0
+GPU_OFFSET=0
+
 for exp in "${EXPERIMENTS[@]}"; do
     IFS='|' read -ra PARTS <<< "$exp"
     # Trim所有参数的空格
@@ -103,11 +117,36 @@ for exp in "${EXPERIMENTS[@]}"; do
     for part in "${PARTS[@]}"; do
         TRIMMED_PARTS+=($(echo "$part" | xargs))
     done
-    
-    GPU_ID="${TRIMMED_PARTS[0]}"
+
+    EXP_ID="${TRIMMED_PARTS[0]}"
     FUNC_NAME="${TRIMMED_PARTS[1]}"
-    
-    echo "GPU ${GPU_ID}: ${FUNC_NAME} ${TRIMMED_PARTS[@]:2}"
+
+    # Skip experiments outside our assigned range
+    if [ "$EXP_ID" -lt "$EXP_START" ] || [ "$EXP_ID" -gt "$EXP_END" ]; then
+        continue
+    fi
+
+    # Configure GPU string based on NUM_GPUS for tensor parallelism
+    # Map to local GPU indices starting from 0
+    if [ "$NUM_GPUS" -eq 1 ]; then
+        # 14B: 1 GPU per exp, experiments map to GPUs 0-7
+        GPU_STRING="${GPU_OFFSET}"
+        ((GPU_OFFSET++))
+    elif [ "$NUM_GPUS" -eq 2 ]; then
+        # 32B: 2 GPUs per exp, experiments map to GPU pairs (0-1, 2-3, 4-5, 6-7)
+        GPU_START=$((GPU_OFFSET))
+        GPU_END=$((GPU_OFFSET + 1))
+        GPU_STRING="${GPU_START},${GPU_END}"
+        GPU_OFFSET=$((GPU_OFFSET + 2))
+    elif [ "$NUM_GPUS" -eq 4 ]; then
+        # 70B: 4 GPUs per exp, experiments map to GPU quads (0-3, 4-7)
+        GPU_START=$((GPU_OFFSET))
+        GPU_END=$((GPU_OFFSET + 3))
+        GPU_STRING=$(seq -s, ${GPU_START} ${GPU_END})
+        GPU_OFFSET=$((GPU_OFFSET + 4))
+    fi
+
+    echo "Experiment ${EXP_ID} on GPU ${GPU_STRING}: ${FUNC_NAME} ${TRIMMED_PARTS[@]:2}"
     
     # 提取run_single_exp的参数（如果有）
     if [ "$FUNC_NAME" = "run_single_exp" ]; then
@@ -136,10 +175,11 @@ for exp in "${EXPERIMENTS[@]}"; do
             export NUM_REPEATS=$NUM_REPEATS
             export BATCH_SIZE=$BATCH_SIZE
             export DEBUG='$DEBUG'
-            export GPUs='${GPU_ID}'
-            export CUDA_VISIBLE_DEVICES='${GPU_ID}'
+            export GPUs='${GPU_STRING}'
+            export CUDA_VISIBLE_DEVICES='${GPU_STRING}'
             export TORCH_CUDA_ARCH_LIST='9.0'
-            export HF_HOME=/workspace/.cache/huggingface
+            export HF_HOME=/data/huggingface
+            export HF_TOKEN='$HF_TOKEN'
             export TOKENIZERS_PARALLELISM=false
             export HF_DATASETS_TRUST_REMOTE_CODE=1
             

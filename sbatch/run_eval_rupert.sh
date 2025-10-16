@@ -19,7 +19,7 @@
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
 export MODEL="Qwen/Qwen3-32B"
-export TASK_NAME="aime24"
+export TASK_NAME="gsm8k_cot_llama"
 export NUM_REPEATS=10
 export BATCH_SIZE=8
 
