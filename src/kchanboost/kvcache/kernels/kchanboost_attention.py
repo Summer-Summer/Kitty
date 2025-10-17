@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-from .kchanboost_kv import KVCache_Layer
+from kchanboost.kvcache.utils import KVCache_Layer
 
 def kchanboost_attention_forward(
     module: nn.Module,

@@ -53,7 +53,7 @@ logger = logging.get_logger(__name__)
 
 
 # import the kchanboost attention function
-from kchanboost.kvcache.kchanboost_attention import kchanboost_attention_forward
+from kchanboost.kvcache.kernels.kchanboost_attention import kchanboost_attention_forward
 
 
 @use_kernel_forward_from_hub("RMSNorm")

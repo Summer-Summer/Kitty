@@ -3,11 +3,10 @@
 KChanBoost KV Cache Module
 """
 
-from .kchanboost_kv import KChanBoostCacheConfig, KChanBoostCache
+from .kchanboost_kv import KChanBoostCache
 from .kchanboost_kv import get_kvcache_kchanboost
 
 __ALL__ = [
-    "KChanBoostCacheConfig",
     "KChanBoostCache",
     "get_kvcache_kchanboost",
 ]
