@@ -26,7 +26,7 @@ Entering the apptainer:
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
 --bind /data:/data \
---overlay build/kchanboost.img build/kchanboost.sif bash
+--overlay build/kchanboost.img:ro build/kchanboost.sif bash
 ```
 
 Installing the package:
