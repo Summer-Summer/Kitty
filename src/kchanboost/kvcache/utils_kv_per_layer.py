@@ -31,34 +31,28 @@ class KVCache_Layer:
                                 + H_KV * PAGE_SIZE * self.D_lo * self.LOW_BIT // self.BITS_PER_BYTE    # INT2    
                                 + H_KV * D)                                                            # ch_idx for channel reordering
         self.KeyCache = torch.zeros(
-            (MAX_BS, self.MAX_PAGE, self.bytes_per_page_K), dtype=torch.uint8, device='cuda')
+            (MAX_BS * self.MAX_PAGE, self.bytes_per_page_K), dtype=torch.uint8, device='cuda')
         self.KeyCache_metadata = torch.zeros( # scale & zero_point
-            (MAX_BS, self.MAX_PAGE, H_KV, D, 2), dtype=torch.half, device='cuda')
+            (MAX_BS * self.MAX_PAGE, H_KV, D, 2), dtype=torch.half, device='cuda')
         # Initialize Value Cache
         self.bytes_per_page_V = H_KV * PAGE_SIZE * D * self.LOW_BIT // self.BITS_PER_BYTE              # INT2
         self.ValueCache = torch.zeros(
-            (MAX_BS, self.MAX_PAGE, self.bytes_per_page_V), dtype=torch.uint8, device='cuda')
+            (MAX_BS * self.MAX_PAGE, self.bytes_per_page_V), dtype=torch.uint8, device='cuda')
         self.ValueCache_metadata = torch.zeros(         # scale & zero_point
-            (MAX_BS, self.MAX_PAGE, H_KV, PAGE_SIZE, 2), dtype=torch.half, device='cuda')
+            (MAX_BS * self.MAX_PAGE, H_KV, PAGE_SIZE, 2), dtype=torch.half, device='cuda')
         # Initialize Page Table
         self.PageTable_K = torch.zeros(
             (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
-        self.PageTable_K_metadata = torch.zeros(
-            (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
         self.PageTable_V = torch.zeros(
-            (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
-        self.PageTable_V_metadata = torch.zeros(
             (MAX_BS, self.MAX_PAGE), dtype=torch.int64, device='cuda')
         # The number of pages used in each batch
         self.PageCount_K = 0
         self.PageCount_V = 0
-        # Filling the PTR to the page table
+        # Filling the page ID to the page table
         for b in range(MAX_BS):
             for p in range(self.MAX_PAGE):
-                self.PageTable_K[b, p] = self.KeyCache[b, p].data_ptr()
-                self.PageTable_V[b, p] = self.ValueCache[b, p].data_ptr()
-                self.PageTable_K_metadata[b, p] = self.KeyCache_metadata[b, p].data_ptr()
-                self.PageTable_V_metadata[b, p] = self.ValueCache_metadata[b, p].data_ptr()
+                self.PageTable_K[b, p] = p + b * self.MAX_PAGE
+                self.PageTable_V[b, p] = p + b * self.MAX_PAGE
         ############################################## Sink ##############################################
         self.Sink_Buffer_K = torch.zeros(
             (MAX_BS, H_KV, S, D), dtype=torch.float16, device='cuda')

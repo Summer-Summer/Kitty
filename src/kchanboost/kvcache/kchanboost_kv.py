@@ -169,7 +169,7 @@ class KChanBoostCache(Cache):
                 page_table_v_metadata = kvcache.PageTable_V_metadata,
                 page_count_v = kvcache.PageCount_V,
             )
-            kvcache.PageCount_V = pages_v
+            kvcache.PageCount_V += pages_v
         # Clear the legacy states
         kvcache.key_states = None
         kvcache.value_states = None
