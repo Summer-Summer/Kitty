@@ -166,6 +166,8 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     # AIME tasks need longer generation for detailed reasoning
     if "aime24" in task or "aime25" in task:
         max_new_tokens = 32768
+    elif "gpqa_diamond_cot_n_shot" in task:
+        max_new_tokens = 16384
     else:
         max_new_tokens = 4096
     
