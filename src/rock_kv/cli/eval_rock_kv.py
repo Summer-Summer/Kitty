@@ -16,6 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num_repeats",  type=int, default=None,                help="Number of times to repeat evaluation. If not specified, will read from task's YAML config (default: 1)")
     parser.add_argument("--batch_size",   type=int, default=1,                   help="Batch size for inference (default: 1)")
     parser.add_argument("--max_new_tokens", type=int, default=4096,              help="Maximum number of new tokens to generate (default: 4096)")
+    parser.add_argument("--results_dir",  type=str, default="./eval_results",    help="Directory to save evaluation results (default: ./eval_results)")
     parser = update_parser(parser)
     return parser
 
@@ -33,7 +34,7 @@ def main() -> None:
         FileName = "{}_fp16_hf_default_{}".format(ModelName.lower().replace("-", "_"), args.task)
     #
     model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16, device_map='auto')
-    eval_model_downstream(model, args.task, ModelName, FileName, args.debug, rock_kv_cache, args.num_repeats, args.batch_size, args.max_new_tokens)
+    eval_model_downstream(model, args.task, ModelName, FileName, args.debug, rock_kv_cache, args.num_repeats, args.batch_size, args.max_new_tokens, args.results_dir)
     release_model_memory(model)
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ def visualize_kv_cache(kv, save_dir="kv_visualizations"):
 
 ########################################### Used by cli/eval_rock_kv.py ###########################################
 @torch.no_grad()
-def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName, DEBUG=False, kv_cache: Optional[RoCKKVCache] = None, num_repeats: int = None, batch_size: int = 8, max_new_tokens: int = 4096):
+def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName, DEBUG=False, kv_cache: Optional[RoCKKVCache] = None, num_repeats: int = None, batch_size: int = 8, max_new_tokens: int = 4096, results_dir: str = "./eval_results"):
     """
     Evaluate model on downstream tasks with support for multiple repeats and checkpoint resumption.
     
@@ -198,8 +198,8 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     print_gpu_memory()
     print("=" * 80)
 
-    # Prepare output directory
-    FileDir = "./eval_results/{}/{}".format(ModelName, task)
+    # Prepare output directory (results_dir can be configured via command line)
+    FileDir = "{}/{}/{}".format(results_dir, ModelName, task)
     if not os.path.exists(FileDir):
         os.makedirs(FileDir, exist_ok=True)
     

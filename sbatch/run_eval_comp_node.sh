@@ -20,6 +20,10 @@ export NUM_REPEATS=1
 export BATCH_SIZE=24
 export MAX_NEW_TOKENS=4096  # 最大生成token数 (aime24/25建议32768, gpqa建议16384, 其他4096)
 
+# 输出路径配置
+export RESULTS_DIR="./eval_results_10_19"  # 评估结果保存目录
+export LOGS_DIR="eval_logs_10_19"          # 日志保存目录
+
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
 
@@ -91,6 +95,8 @@ echo "Task: $TASK_NAME"
 echo "Num Repeats: $NUM_REPEATS"
 echo "Batch Size: $BATCH_SIZE"
 echo "Max New Tokens: $MAX_NEW_TOKENS"
+echo "Results Dir: $RESULTS_DIR"
+echo "Logs Dir: $LOGS_DIR"
 echo "Master PID: $$"
 echo "=========================================="
 echo ""
@@ -143,6 +149,7 @@ for exp in "${EXPERIMENTS[@]}"; do
             export NUM_REPEATS=$NUM_REPEATS
             export BATCH_SIZE=$BATCH_SIZE
             export MAX_NEW_TOKENS=$MAX_NEW_TOKENS
+            export RESULTS_DIR='$RESULTS_DIR'
             export DEBUG='$DEBUG'
             export GPUs='${GPU_ID}'
             export CUDA_VISIBLE_DEVICES='${GPU_ID}'
@@ -162,7 +169,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                 NODE_NAME_TMP=\$(hostname | cut -d. -f1)
             fi
             MODEL_SHORT=\$(get_model_shortname \"\$MODEL\")
-            export LOG_BASE_DIR=\"/workspace/RoCK-KV/eval_scripts/eval_logs/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
+            export LOG_BASE_DIR=\"/workspace/RoCK-KV/eval_scripts/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
             mkdir -p \${LOG_BASE_DIR}
             
             # 调用函数
@@ -188,6 +195,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
                       --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
+                      --results_dir \${RESULTS_DIR:-./eval_results} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_hf_baseline
@@ -231,6 +239,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
                       --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
+                      --results_dir \${RESULTS_DIR:-./eval_results} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_single_exp '${LABEL}' ${SINK} ${CHANNEL} ${KBITS} ${VBITS} ${PROMOTE_BIT} ${PROMOTE_RATIO}
@@ -267,7 +276,7 @@ fi
 # 获取模型简称（用于路径）
 MODEL_SHORT=$(echo "$MODEL" | sed 's|.*/||' | sed 's/-/_/g')
 
-LOG_DIR="$HOME/RoCK-KV/eval_scripts/eval_logs/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}"
+LOG_DIR="$HOME/RoCK-KV/eval_scripts/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}"
 
 # 检查结果
 echo "Results Summary:"
@@ -293,8 +302,8 @@ for exp in "${EXPERIMENTS[@]}"; do
 done
 
 echo ""
-echo "Results: eval_scripts/eval_results/${MODEL##*/}/${TASK_NAME}/"
+echo "Results: eval_scripts/${RESULTS_DIR}/${MODEL##*/}/${TASK_NAME}/"
 echo "Logs: ${LOG_DIR}/"
 echo ""
-echo "Log structure: eval_logs/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}/"
+echo "Log structure: ${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}/"
 
