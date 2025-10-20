@@ -13,9 +13,9 @@
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
 export MODEL="Qwen/Qwen3-8B"
-export TASK_NAME="humaneval_instruct_bs1"
-export NUM_REPEATS=10
-export BATCH_SIZE=1
+export TASK_NAME="minerva_math_algebra"
+export NUM_REPEATS=3
+export BATCH_SIZE=32
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
@@ -42,15 +42,15 @@ declare -a EXPERIMENTS=(
     # # KIVI K4V4
     # "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.1"
     # # KIVI K2V2
-    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.3"
+    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.3"
     # # sinkKIVI K4V2
     # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.4"
     # sinkKIVI K2V4
     # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.9"
     # sinkKIVI K2V2
-    "5    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.1"
+    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.1"
     # sinkKIVI K2.2V2
-    "6    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.2"
+    # "6    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.2"
     # # sinkKIVI K2.4V2
     # "7    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.8"
 )

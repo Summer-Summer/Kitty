@@ -30,8 +30,11 @@ def load_completed_repeats(file_dir: str, file_name: str, num_repeats: int) -> T
     completed_repeats = []
     all_results = []
     
+    # Create subdirectory for this configuration
+    config_dir = f"{file_dir}/{file_name}"
+    
     for repeat_idx in range(num_repeats):
-        repeat_file = f"{file_dir}/{file_name}_repeat_{repeat_idx}.json"
+        repeat_file = f"{config_dir}/{file_name}_repeat_{repeat_idx}.json"
         if os.path.exists(repeat_file):
             print(f"[Checkpoint] Found existing result for repeat {repeat_idx}: {repeat_file}")
             completed_repeats.append(repeat_idx)
@@ -257,8 +260,12 @@ def run_evaluation_repeats(
             model_configs=model_configs
         )
         
+        # Create subdirectory for this configuration
+        config_dir = f"{file_dir}/{file_name}"
+        os.makedirs(config_dir, exist_ok=True)
+        
         # Save individual repeat result (with full samples) to file
-        repeat_file = f"{file_dir}/{file_name}_repeat_{repeat_idx}.json"
+        repeat_file = f"{config_dir}/{file_name}_repeat_{repeat_idx}.json"
         with open(repeat_file, "w") as f:
             json.dump(output, f, indent=4)
         print(f"[Saved] Repeat {repeat_idx} result: {repeat_file}")

@@ -239,8 +239,10 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     
     summary = generate_summary_statistics(all_results, task, model_configs, num_repeats)
     
-    # Save summary file
-    summary_file = "{}/{}_summary.json".format(FileDir, fileName)
+    # Create subdirectory for this configuration and save summary file
+    config_dir = "{}/{}".format(FileDir, fileName)
+    os.makedirs(config_dir, exist_ok=True)
+    summary_file = "{}/{}_summary.json".format(config_dir, fileName)
     with open(summary_file, "w") as f:
         json.dump(summary, f, indent=4)
     print(f"[Saved] Summary statistics: {summary_file}")
