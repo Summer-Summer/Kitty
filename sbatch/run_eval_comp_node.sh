@@ -15,9 +15,10 @@
 
 # 注意现在gpqa设置的是16k,运行前请再次确认
 export MODEL="Qwen/Qwen3-8B"
-export TASK_NAME="gpqa_diamond_cot_n_shot_new"
+export TASK_NAME="aime24"
 export NUM_REPEATS=1
 export BATCH_SIZE=24
+export MAX_NEW_TOKENS=4096  # 最大生成token数 (aime24/25建议32768, gpqa建议16384, 其他4096)
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
@@ -40,21 +41,21 @@ MASTER_LOG="$HOME/RoCK-KV/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
 # GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
 declare -a EXPERIMENTS=(
     # Baseline
-    "0,1    |  run_hf_baseline"
+    "0    |  run_hf_baseline"
     # KIVI K4V4
-    # "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       4       |      0.0"
-    # # KIVI K2V2
-    # "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
-    # # sinkKIVI K4V2
-    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       4       |      0.0"
-    # # sinkKIVI K2V4
-    # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       4       |      0.0"
-    # # sinkKIVI K2V2
-    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.0"
-    # # sinkKIVI K2.2V2
-    # "6    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.1"
-    # # sinkKIVI K2.4V2
-    # "7    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.2"
+    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       4       |      0.0"
+    # KIVI K2V2
+    "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
+    # sinkKIVI K4V2
+    "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       4       |      0.0"
+    # sinkKIVI K2V4
+    "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       4       |      0.0"
+    # sinkKIVI K2V2
+    "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.0"
+    # sinkKIVI K2.2V2
+    "6    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.1"
+    # sinkKIVI K2.4V2
+    "7    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.2"
 )
 
 # ============================================================================
@@ -89,6 +90,7 @@ echo "Model: $MODEL"
 echo "Task: $TASK_NAME"
 echo "Num Repeats: $NUM_REPEATS"
 echo "Batch Size: $BATCH_SIZE"
+echo "Max New Tokens: $MAX_NEW_TOKENS"
 echo "Master PID: $$"
 echo "=========================================="
 echo ""
@@ -140,6 +142,7 @@ for exp in "${EXPERIMENTS[@]}"; do
             export TASK_NAME='$TASK_NAME'
             export NUM_REPEATS=$NUM_REPEATS
             export BATCH_SIZE=$BATCH_SIZE
+            export MAX_NEW_TOKENS=$MAX_NEW_TOKENS
             export DEBUG='$DEBUG'
             export GPUs='${GPU_ID}'
             export CUDA_VISIBLE_DEVICES='${GPU_ID}'
@@ -184,6 +187,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --task \$TASK_NAME \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
+                      --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_hf_baseline
@@ -226,6 +230,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --channel_selection \$channel \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
+                      --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_single_exp '${LABEL}' ${SINK} ${CHANNEL} ${KBITS} ${VBITS} ${PROMOTE_BIT} ${PROMOTE_RATIO}

@@ -68,7 +68,7 @@ def visualize_kv_cache(kv, save_dir="kv_visualizations"):
 
 ########################################### Used by cli/eval_rock_kv.py ###########################################
 @torch.no_grad()
-def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName, DEBUG=False, kv_cache: Optional[RoCKKVCache] = None, num_repeats: int = None, batch_size: int = 8):
+def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName, DEBUG=False, kv_cache: Optional[RoCKKVCache] = None, num_repeats: int = None, batch_size: int = 8, max_new_tokens: int = 4096):
     """
     Evaluate model on downstream tasks with support for multiple repeats and checkpoint resumption.
     
@@ -162,14 +162,8 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     # For thinking mode (Qwen3-4B), use sampling parameters from YAML
     # Otherwise use greedy decoding for deterministic evaluation
     
-    # Set max_new_tokens based on task type
-    # AIME tasks need longer generation for detailed reasoning
-    if "aime24" in task or "aime25" in task:
-        max_new_tokens = 32768
-    elif "gpqa_diamond_cot_n_shot" in task:
-        max_new_tokens = 16384
-    else:
-        max_new_tokens = 4096
+    # max_new_tokens is now passed as a parameter from command line
+    # Default: 4096, but can be overridden via --max_new_tokens argument
     
     gen_kwargs = {
             "past_key_values": kv_cache,  # Use RoCKKV cache if provided
