@@ -32,7 +32,7 @@ def build_q_score(query_states: torch.Tensor, kv_head: int) -> torch.Tensor:
 
 
 # ToDo: Support batch size > 1, promote_mask  : (B, nh, D) bool
-def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_selection: int, q_score: Optional[torch.Tensor]=None) -> torch.BoolTensor:
+def build_promote_mask_deprecated(key_states: torch.Tensor, promote_ratio: float, channel_selection: int, q_score: Optional[torch.Tensor]=None) -> torch.BoolTensor:
     """
     Generating a mask to select channels based on importance scores.
     args:
@@ -130,6 +130,53 @@ def build_promote_mask(key_states: torch.Tensor, promote_ratio: float, channel_s
 
 
 
+def build_promote_mask(
+        key_states: torch.Tensor, 
+        promote_ratio: float, 
+        channel_selection: int, 
+        q_score: Optional[torch.Tensor]=None
+    ) -> torch.Tensor:
+    """
+    Generating a mask to select channels based on importance scores.
+    args:
+        key_states : (B, nh, D, T),     key cache after RoPE but before quantization
+        promote_ratio : float,          the ratio of channels to promote, in [0, 1]
+        channel_selection : int,        channel selection strategy
+                                        (-1) for Unspecified, raise an error;
+                                        (0)  for Random Selection;
+                                        (2)  Magnitude-based Channel Selection;
+    returns:
+        promote_mask  : (B, nh, D) bool,      promote_mask[i][j] == True -> j-th channel of i-th head is selected for promotion
+    """
+    assert key_states.dim() == 4
+    B, nh, D, _ = key_states.shape
+    assert 0. <= promote_ratio <= 1.0, f"promote_ratio must be in [0, 1], got {promote_ratio}"
+    # corner cases
+    k_chan = int(D * promote_ratio + 1e-6)  # number of channels to promote
+    k_chan = max(0, min(k_chan, D))
+    if k_chan == 0:  # promote no channel
+        return torch.zeros((B, nh, D), dtype=torch.bool, device=key_states.device)
+    if k_chan >= D:  # promote all
+        return torch.ones((B, nh, D), dtype=torch.bool, device=key_states.device)
+    #
+    promote_mask = torch.zeros((B, nh, D), dtype=torch.bool, device=key_states.device)
+    ##############################################channel selection strategies###############################################
+    if channel_selection == 0:                                                            # (0)  for Random Selection;
+        for i in range(nh):
+            rand_idx = torch.randperm(D, device=key_states.device)[:k_chan]         # (k_chan,)
+            promote_mask[:, i, rand_idx] = True                                     # (B, k_chan)
+    elif channel_selection == 2:                                                            # (2)  Magnitude-based Channel Selection
+        score = key_states.abs()
+        score = score.mean(dim=-1)  # (B, nh, D, T) → (B, nh, D)
+        _, top_idx = score.topk(k_chan, dim=-1)     # (B, nh, k_chan)
+        promote_mask.scatter_(-1, top_idx, True)   # True → promote channel, (B, nh, D)
+    ########################################################################################################################
+    else:
+        raise ValueError(f"Invalid channel_selection strategy: {channel_selection}")
+    #
+    return promote_mask
+
+
 def fake_quant_groupwise_lastdim(
         data: torch.Tensor,
         group_size: int,
@@ -145,7 +192,7 @@ def fake_quant_groupwise_lastdim(
         group_size: int - number of elements per quant group along last dim
         bit: int - quantization bit width (e.g. 2 or 4)
     Optional Args:
-        promote_mask: (nh, D) - bool tensor, True → use promote_bit, False → use bit
+        promote_mask: (B, nh, D) - bool tensor, True → use promote_bit, False → use bit
         promote_bit:  int - bit width for channels that are promoted to (e.g. 4)
     Returns:
         dequantized_data: same shape as input, fp16 tensor with fake quantized values
@@ -164,10 +211,10 @@ def fake_quant_groupwise_lastdim(
     eps = 1e-4 if data.dtype in (torch.float16, torch.bfloat16) else 1e-6  # numerical stability
     
     if promote_mask is not None:
-        assert promote_mask.shape == (nh, D), f"Expected mask shape (nh, D), got {promote_mask.shape}"
+        assert promote_mask.shape == (B, nh, D), f"Expected mask shape (B, nh, D), got {promote_mask.shape}"
         scale_base = (mx - mn).clamp(min=eps) / (2 ** bit - 1)
         scale_promote = (mx - mn).clamp(min=eps) / (2 ** promote_bit - 1)
-        promote_mask = promote_mask.view(1, nh, D, 1, 1)
+        promote_mask = promote_mask.view(B, nh, D, 1, 1)
         scale = torch.where(promote_mask, scale_promote, scale_base)
         max_val = torch.where(
             promote_mask,
