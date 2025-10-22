@@ -88,6 +88,7 @@ def qk_kernel(
         + offs_s[:, None] * sink_stride_s_k
         + offs_d[None, :] * sink_stride_d_k,
         mask=mask,
+        padding_option="zero"
     )
     #
     logits_sink = tl.dot(q, tl.trans(k_sink))  # [KV_GROUP, S]
@@ -108,7 +109,7 @@ def qk_kernel(
     # Computing the Q * K_Paged
     i = 0
     while i < page_count_k:
-        ######################## load dequantized K_page ########################
+        ######################## load page ID ########################
         page_id = tl.load(
             page_table_ptr_k
             + pid_b * page_table_stride_b_k
@@ -156,7 +157,7 @@ def qk_kernel(
         # dequantize
         x_fp16 = x_uint8.to(tl.float16)  # [D, PAGE_SIZE]
         x_fp16 = x_fp16 * scale[:, None] + zero_point[:, None]  # [D, PAGE_SIZE]
-        # Computing the Q * K_page
+        ######################## Computing the Q * K_page ########################
         logits_page = tl.dot(q, x_fp16)  # [KV_GROUP, PAGE_SIZE]
         logits_page = logits_page * scaling
         logits_page = logits_page.to(tl.float16)
@@ -180,6 +181,7 @@ def qk_kernel(
         + offs_t[:, None] * qbuff_stride_t_k
         + offs_d[None, :] * qbuff_stride_d_k,
         mask=mask,
+        padding_option="zero"
     )
     #
     logits_qbuff = tl.dot(q, tl.trans(k_qbuff))  # [KV_GROUP, PAGE_SIZE]
@@ -190,8 +192,7 @@ def qk_kernel(
     tl.store(
         output_ptr
         + pid_b * out_stride_b
-        + pid_h_kv * KV_GROUP * out_stride_hq
-        + offs_kvg[:, None] * out_stride_hq
+        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * out_stride_hq
         + (sink_count + page_count_k * PAGE_SIZE + offs_t)[None, :] * out_stride_t_total,
         logits_qbuff,
         mask=mask,
@@ -201,37 +202,36 @@ def qk_kernel(
 @triton.jit
 def sv_kernel(
     # softmax logits (Input)
-    s_ptr,                                                                      # fp16 [B, H_Q, t_total]
-    s_stride_b, s_stride_hq, s_stride_t_total,
+    attn_score_ptr,                                                                      # fp16 [B, H_Q, t_total]
+    attn_score_stride_b, attn_score_stride_hq, attn_score_stride_t_total,
     # Value Cache (Input)
     sink_ptr_v,                                                                 # fp16 [B, H_KV, S, D]
     sink_stride_b_v, sink_stride_h_v, sink_stride_s_v, sink_stride_d_v,
     qbuff_ptr_v,                                                                # fp16 [B, H_KV, PAGE_SIZE, D]
-    qbuff_stride_b_v, qbuff_stride_h_v, qbuff_stride_p_v, qbuff_stride_d_v,
+    qbuff_stride_b_v, qbuff_stride_h_v, qbuff_stride_t_v, qbuff_stride_d_v,
     local_ptr,                                                                  # fp16 [B, H_KV, PAGE_SIZE, D]
-    local_stride_b, local_stride_h, local_stride_p, local_stride_d,
+    local_stride_b, local_stride_h, local_stride_t, local_stride_d,
     page_table_ptr_v,                                                           # int64 [B, MAX_PAGE]
     page_table_stride_b_v, page_table_stride_p_v,
     vcache_ptr,                                                                 # uint8 [MAX_BS * self.MAX_PAGE, BYTES_PER_PAGE_V,]
     vcache_stride_p, vcache_stride_last,
     vcache_meta_ptr,                                                            # fp16 [MAX_BS * self.MAX_PAGE, H_KV, D, 2]
     vcache_meta_stride_p, vcache_meta_stride_h, vcache_meta_stride_d, vcache_meta_stride_last,
-    # Output
+    # Output in shape [B, T=1, H_Q, D] to be compatible with huggingface transformers.
     output_ptr,                                                                 # fp16 [B, H_Q, 1, D]
-    output_stride_b, output_stride_h, output_stride_t, output_stride_d,
+    output_stride_b, output_stride_t, output_stride_hq, output_stride_d,
     # Variables
     sink_count,                                                                  # int32
     qbuff_count_v,                                                               # int32
     local_count_v,                                                               # int32
     local_offset_v,                                                              # int32
     page_count_v,                                                                # int32 
-    # Constants
-    BYTES_PER_PAGE_V: tl.constexpr,
-    V_STRIDE_T: tl.constexpr,     # bytes, D*2//8
     # Other constants
     PAGE_SIZE: tl.constexpr,
     D: tl.constexpr,
-    D_BOOST: tl.constexpr,
+    H_KV: tl.constexpr,
+    H_Q: tl.constexpr,
+    S: tl.constexpr,              # Sink size
 ):
     """
     grid = (B, H_KV)
@@ -239,6 +239,150 @@ def sv_kernel(
       [Sink | Paged pages | QBuffer | Local Buffer] 依次拼接
     """
     
+    # Constant Strides and Offsets for V cache dequantization
+    V_STRIDE_T:     tl.constexpr = D * 2 // 8
+    V_STRIDE_H_KV:  tl.constexpr = V_STRIDE_T * PAGE_SIZE
+    KV_GROUP:       tl.constexpr = H_Q // H_KV
+
+    #
+    pid_b = tl.program_id(0)
+    pid_h_kv = tl.program_id(1)
+
+    # Offsets
+    offs_s = tl.arange(0, S)
+    offs_kvg = tl.arange(0, KV_GROUP)
+    offs_d = tl.arange(0, D)
+    offs_t = tl.arange(0, PAGE_SIZE)
+    offs_pack = offs_d // 4
+    shifts = (offs_d % 4) * 2
+
+    # Computing the Sink part
+    mask = (offs_s[None, :] < sink_count) & (offs_kvg[:, None] >= 0)
+    attn_score_sink = tl.load(
+        attn_score_ptr
+        + pid_b * attn_score_stride_b
+        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+        + (0 + offs_s[None, :]) * attn_score_stride_t_total,
+        mask=mask,
+        padding_option="zero"
+    )  # [KV_GROUP, S]
+    mask = (offs_s[:, None] < sink_count) & (offs_d[None, :] >= 0)
+    v_sink = tl.load(
+        sink_ptr_v
+        + pid_b * sink_stride_b_v
+        + pid_h_kv * sink_stride_h_v
+        + offs_s[:, None] * sink_stride_s_v
+        + offs_d[None, :] * sink_stride_d_v,
+        mask=mask,
+        padding_option="zero"
+    )  # [S, D]
+    attn_output_acc = tl.dot(attn_score_sink, v_sink)  # [KV_GROUP, D]
+
+    # Computing the Paged part
+    i = 0
+    while i < page_count_v:
+        ######################## load page ID ########################
+        page_id = tl.load(
+            page_table_ptr_v
+            + pid_b * page_table_stride_b_v
+            + i * page_table_stride_p_v
+        )
+        ######################## load scale & zero_point ########################
+        meta_base = vcache_meta_ptr + page_id * vcache_meta_stride_p + pid_h_kv * vcache_meta_stride_h
+        scale = tl.load(
+            meta_base 
+            + offs_t * vcache_meta_stride_d
+            + 0 * vcache_meta_stride_last)  # [PAGE_SIZE]
+        zero_point = tl.load(
+            meta_base 
+            + offs_t * vcache_meta_stride_d
+            + 1 * vcache_meta_stride_last)  # [PAGE_SIZE]
+        ######################## load quantized V_page ########################
+        cache_base = vcache_ptr + page_id * vcache_stride_p + pid_h_kv * V_STRIDE_H_KV
+        x_uint8 = tl.load(
+            cache_base
+            + offs_t[:, None] * V_STRIDE_T
+            + offs_pack[None, :] * 1,
+        )  # [PAGE_SIZE, D] uint8
+        x_uint8 = (x_uint8 >> shifts[None, :]) & 0x3  # [PAGE_SIZE, D] uint8
+        ######################## dequantizing the V_page ########################
+        x_fp16 = x_uint8.to(tl.float16)  # [PAGE_SIZE, D]
+        x_fp16 = x_fp16 * scale[:, None] + zero_point[:, None]  # [PAGE_SIZE, D]
+        ######################## load a page of attention score ########################
+        attn_score_page = tl.load(
+            attn_score_ptr
+            + pid_b * attn_score_stride_b
+            + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+            + (i * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
+        )  # [KV_GROUP, PAGE_SIZE]
+        ######################## compute attn_output_page ########################
+        attn_output_acc = tl.dot(attn_score_page, x_fp16, attn_output_acc)  # [KV_GROUP, D]
+        ######################## iterate next page ########################
+        i += 1
+
+    # Computing the QBuffer part
+    #
+    mask = (offs_t[None, :] < qbuff_count_v) & (offs_kvg[:, None] >= 0)
+    attn_score_qbuff = tl.load(
+        attn_score_ptr
+        + pid_b * attn_score_stride_b
+        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+        + (S + page_count_v * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
+        mask=mask,
+        padding_option="zero"
+    )  # [KV_GROUP, PAGE_SIZE]
+    #
+    mask = (offs_t[:, None] < qbuff_count_v) & (offs_d[None, :] >= 0)
+    v_qbuff = tl.load(
+        qbuff_ptr_v
+        + pid_b * qbuff_stride_b_v
+        + pid_h_kv * qbuff_stride_h_v
+        + offs_t[:, None] * qbuff_stride_t_v
+        + offs_d[None, :] * qbuff_stride_d_v,
+        mask=mask,
+        padding_option="zero"
+    )  # [PAGE_SIZE, D]
+    #
+    attn_output_acc = tl.dot(attn_score_qbuff, v_qbuff, attn_output_acc)  # [KV_GROUP, D]
+
+    # Computing the Local Buffer part
+    #
+    mask = (offs_t[None, :] < local_count_v) & (offs_kvg[:, None] >= 0)
+    attn_score_local = tl.load(
+        attn_score_ptr
+        + pid_b * attn_score_stride_b
+        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+        + (S + page_count_v * PAGE_SIZE + qbuff_count_v + offs_t[None, :]) * attn_score_stride_t_total,
+        mask=mask,
+        padding_option="zero"
+    )  # [KV_GROUP, PAGE_SIZE]
+    #
+    offs_local = tl.arange(0, PAGE_SIZE) + local_offset_v
+    offs_local = offs_local % PAGE_SIZE
+    mask = (offs_t[:, None] < local_count_v) & (offs_d[None, :] >= 0)
+    v_local = tl.load(
+        local_ptr
+        + pid_b * local_stride_b
+        + pid_h_kv * local_stride_h
+        + offs_local[:, None] * local_stride_t
+        + offs_d[None, :] * local_stride_d,
+        mask=mask,
+        padding_option="zero"
+    )  # [PAGE_SIZE, D]
+    #
+    attn_output_acc = tl.dot(attn_score_local, v_local, attn_output_acc)  # [KV_GROUP, D]
+
+    # Store attn_output
+    attn_output_acc = attn_output_acc.to(tl.float16)
+    tl.store(
+        output_ptr
+        + output_stride_b * pid_b
+        + output_stride_t * 0
+        + output_stride_hq * (pid_h_kv * KV_GROUP + offs_kvg[:, None])
+        + output_stride_d * offs_d[None, :],
+        attn_output_acc,
+    )
+
 
 
 def kchanboost_attention_forward(
