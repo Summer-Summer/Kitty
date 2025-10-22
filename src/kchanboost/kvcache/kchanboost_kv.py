@@ -217,12 +217,7 @@ class KChanBoostCache(Cache):
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Returns the sequence length of the cached states. A layer index can be optionally passed."""
         KVCache_Layer = self.kv_cache[layer_idx]
-        seqlen_K = KVCache_Layer.PageCount_K * KVCache_Layer.PAGE_SIZE + KVCache_Layer.Sink_Count + KVCache_Layer.Q_Buffer_Count_K
-        # For debug
-        seqlen_V = KVCache_Layer.PageCount_V * KVCache_Layer.PAGE_SIZE + KVCache_Layer.Sink_Count + KVCache_Layer.Q_Buffer_Count_V + KVCache_Layer.Local_Count_V
-        assert seqlen_K == seqlen_V, f"seqlen_K: {seqlen_K}, seqlen_V: {seqlen_V}"
-        #
-        return seqlen_K
+        return KVCache_Layer.get_total_length()
 
 
 def get_kvcache_kchanboost(

@@ -134,11 +134,11 @@ def quantize_pack_k_kernel(
     scale = tl.where(scale < 1e-6, 1e-6, scale)         # [D]
 
     # page id
-    page_id = tl.load(page_table_ptr + pid_b * page_table_stride_b + (page_count+ pid_page))
+    page_id = tl.load(page_table_ptr + pid_b * page_table_stride_b + (page_count+ pid_page)*page_table_stride_last)
     # store metadata
     meta_base = cache_meta_ptr + page_id * cache_meta_stride_bp + pid_h * cache_meta_stride_h
-    tl.store(meta_base + offs_d * cache_meta_stride_d + 0, scale.to(tl.float16))
-    tl.store(meta_base + offs_d * cache_meta_stride_d + 1, x_min.to(tl.float16))
+    tl.store(meta_base + offs_d * cache_meta_stride_d + 0*cache_meta_stride_last, scale.to(tl.float16))
+    tl.store(meta_base + offs_d * cache_meta_stride_d + 1*cache_meta_stride_last, x_min.to(tl.float16))
 
 
     # quantize to int4 & int2, 

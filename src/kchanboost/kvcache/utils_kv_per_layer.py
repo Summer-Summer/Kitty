@@ -25,11 +25,9 @@ class KVCache_Layer:
         self.S = S
         # Initialize Key Cache
         self.MAX_PAGE = math.ceil(MAX_LEN / PAGE_SIZE)
-        self.D_hi = D_BOOSTED
-        self.D_lo = D - D_BOOSTED
-        self.bytes_per_page_K = (H_KV * PAGE_SIZE * self.D_hi * self.HIGH_BIT // self.BITS_PER_BYTE    # INT4
-                                + H_KV * PAGE_SIZE * self.D_lo * self.LOW_BIT // self.BITS_PER_BYTE    # INT2    
-                                + H_KV * D)                                                            # ch_idx for channel reordering
+        self.bytes_per_page_K = (H_KV * self.D         * PAGE_SIZE * self.LOW_BIT // self.BITS_PER_BYTE     # Low INT2
+                               + H_KV * self.D_BOOSTED * PAGE_SIZE * self.LOW_BIT // self.BITS_PER_BYTE     # High INT2
+                               + H_KV * D)                                                                  # ch_idx for channel reordering
         self.KeyCache = torch.zeros(
             (MAX_BS * self.MAX_PAGE, self.bytes_per_page_K), dtype=torch.uint8, device='cuda')
         self.KeyCache_metadata = torch.zeros( # scale & zero_point
@@ -77,3 +75,15 @@ class KVCache_Layer:
         # Legacy for compatibility of prefills
         self.key_states: Optional[torch.Tensor] = None
         self.value_states: Optional[torch.Tensor] = None
+    
+    def get_total_length(self) -> int:
+        """Returns the total length of the cached states."""
+        total_length = (self.PageCount_K * self.PAGE_SIZE
+                        + self.Sink_Count
+                        + self.Q_Buffer_Count_K)
+        seqlen_V = (self.PageCount_V * self.PAGE_SIZE
+                    + self.Sink_Count
+                    + self.Q_Buffer_Count_V
+                    + self.Local_Count_V)
+        assert total_length == seqlen_V, f"seqlen_K: {total_length}, seqlen_V: {seqlen_V}"
+        return total_length
