@@ -85,7 +85,7 @@ def qk_kernel(
         + offs_s[:, None] * sink_stride_s_k
         + offs_d[None, :] * sink_stride_d_k,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )
     #
     logits_sink = tl.dot(q, tl.trans(k_sink))  # [KV_GROUP, S]
@@ -145,7 +145,7 @@ def qk_kernel(
             + boost_idx[:, None] * K_STRIDE_D
             + offs_pack[None, :] * 1,
             mask=mask,
-            padding_option="zero"
+            other=0.0
         )  # [D_BOOST, PAGE_SIZE] uint8
         x_uint8_high = (x_uint8_high >> shifts[None, :]) & 0x3  # [D_BOOST, PAGE_SIZE] uint8
         ######################## dequantizing the K_page ########################
@@ -178,7 +178,7 @@ def qk_kernel(
         + offs_t[:, None] * qbuff_stride_t_k
         + offs_d[None, :] * qbuff_stride_d_k,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )
     #
     logits_qbuff = tl.dot(q, tl.trans(k_qbuff))  # [KV_GROUP, PAGE_SIZE]
@@ -261,7 +261,7 @@ def sv_kernel(
         + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
         + (0 + offs_s[None, :]) * attn_score_stride_t_total,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )  # [KV_GROUP, S]
     mask = (offs_s[:, None] < sink_count) & (offs_d[None, :] >= 0)
     v_sink = tl.load(
@@ -271,7 +271,7 @@ def sv_kernel(
         + offs_s[:, None] * sink_stride_s_v
         + offs_d[None, :] * sink_stride_d_v,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )  # [S, D]
     attn_output_acc = tl.dot(attn_score_sink, v_sink)  # [KV_GROUP, D]
 
@@ -326,7 +326,7 @@ def sv_kernel(
         + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
         + (S + page_count_v * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )  # [KV_GROUP, PAGE_SIZE]
     #
     mask = (offs_t[:, None] < qbuff_count_v) & (offs_d[None, :] >= 0)
@@ -337,7 +337,7 @@ def sv_kernel(
         + offs_t[:, None] * qbuff_stride_t_v
         + offs_d[None, :] * qbuff_stride_d_v,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )  # [PAGE_SIZE, D]
     #
     attn_output_acc = tl.dot(attn_score_qbuff, v_qbuff, attn_output_acc)  # [KV_GROUP, D]
@@ -351,7 +351,7 @@ def sv_kernel(
         + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
         + (S + page_count_v * PAGE_SIZE + qbuff_count_v + offs_t[None, :]) * attn_score_stride_t_total,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )  # [KV_GROUP, PAGE_SIZE]
     #
     offs_local = tl.arange(0, PAGE_SIZE) + local_offset_v
@@ -364,7 +364,7 @@ def sv_kernel(
         + offs_local[:, None] * local_stride_t
         + offs_d[None, :] * local_stride_d,
         mask=mask,
-        padding_option="zero"
+        other=0.0
     )  # [PAGE_SIZE, D]
     #
     attn_output_acc = tl.dot(attn_score_local, v_local, attn_output_acc)  # [KV_GROUP, D]
@@ -400,7 +400,7 @@ def kchanboost_attention_forward(
     query = query.view(B, KV_GROUP, H_KV, 1, D)
 
     # Prepare output tensor for attention scores
-    t_total_kvcache = kv_cache.get_seq_length()
+    t_total_kvcache = kv_cache.get_total_length()
     attn_score = torch.empty(
         (B, H_Q, t_total_kvcache),
         dtype=query.dtype,

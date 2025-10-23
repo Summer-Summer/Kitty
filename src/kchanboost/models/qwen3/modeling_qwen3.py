@@ -180,6 +180,10 @@ class Qwen3Attention(nn.Module):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
+        #
+        self.num_attention_heads = config.num_attention_heads
+        self.num_key_value_heads = config.num_key_value_heads
+
         self.q_proj = nn.Linear(
             config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
         )
@@ -510,7 +514,7 @@ class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
 
 @auto_docstring
-class Qwen3ForCausalLM_KChanBoost(Qwen3PreTrainedModel, GenerationMixin):
+class Qwen3ForCausalLM(Qwen3PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
     _pp_plan = {"lm_head": (["hidden_states"], ["logits"])}

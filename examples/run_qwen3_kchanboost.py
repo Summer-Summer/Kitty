@@ -114,13 +114,12 @@ def get_prompt(prompt_choice: int) -> tuple[str, str]:
 import argparse
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default="Qwen/Qwen3-32B", help='Qwen3 model to load')
+    parser.add_argument('--model', type=str, default="Qwen/Qwen3-8B", help='Qwen3 model to load')
     parser.add_argument("--fp16_kv_cache",   action='store_true',      help="Use the default KV cache implementation from Transformers")
     parser.add_argument("--max_token_new",   type=int, default=200,    help="Maximum number of new tokens to generate")
     parser.add_argument("--max_seq_len",     type=int, default=8192,   help="Maximum sequence length for KV cache, should be larger than the prompt length + max_token_new")
     parser.add_argument("--batch_size",      type=int, default=1,      help="Batch size for generation, repeat the prompt for each batch")
     parser.add_argument("--prompt_choice",   type=int, default=0,      help="Choice of prompt to use")
-    parser = update_parser(parser)
     return parser
 
 
