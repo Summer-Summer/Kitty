@@ -41,6 +41,8 @@ def qk_kernel(
     D: tl.constexpr,
     S: tl.constexpr,              # Sink size
     D_BOOST: tl.constexpr,
+    # Tiling constants
+    MAX_KV_GROUP: tl.constexpr
 ):
     """
     grid = (B, H_KV)
@@ -59,48 +61,51 @@ def qk_kernel(
     pid_h_kv = tl.program_id(1)
 
     # Offsets
-    offs_kvg = tl.arange(0, KV_GROUP)
+    offs_max_kvg = tl.arange(0, MAX_KV_GROUP)
     offs_d = tl.arange(0, D)
     offs_t = tl.arange(0, PAGE_SIZE)
     offs_s = tl.arange(0, S)
     offs_pack = offs_t // 4
     shifts = (offs_t % 4) * 2
 
-    # Load Query [B, H_Q, 1, D] = [B, KV_GROUP, H_KV, 1, D] → [KV_GROUP, D]
+    # Load Query [B, KV_GROUP, H_KV, 1, D] → [MAX_KV_GROUP, D]
+    mask_load_q = (offs_max_kvg[:, None] < KV_GROUP) & (offs_d[None, :] >= 0)
     q = tl.load(
         q_ptr
         + pid_b * q_stride_b
         + pid_h_kv * q_stride_h
         + 0 * q_stride_t
-        + offs_kvg[:, None] * q_stride_kvg
-        + offs_d[None, :] * q_stride_d
+        + offs_max_kvg[:, None] * q_stride_kvg
+        + offs_d[None, :] * q_stride_d,
+        mask=mask_load_q,
+        other=0.0
     )
 
     # Computing the Q * K_Sink
-    mask = (offs_s[:, None] < sink_count) & (offs_d[None, :] >= 0)
+    mask_load_k_sink = (offs_s[:, None] < sink_count) & (offs_d[None, :] >= 0)
     k_sink = tl.load(
         sink_ptr_k
         + pid_b * sink_stride_b_k
         + pid_h_kv * sink_stride_h_k
         + offs_s[:, None] * sink_stride_s_k
         + offs_d[None, :] * sink_stride_d_k,
-        mask=mask,
+        mask=mask_load_k_sink,
         other=0.0
     )
     #
-    logits_sink = tl.dot(q, tl.trans(k_sink))  # [KV_GROUP, S]
+    logits_sink = tl.dot(q, tl.trans(k_sink))  # [MAX_KV_GROUP, S]
     logits_sink = logits_sink * scaling
     logits_sink = logits_sink.to(tl.float16)
     #
-    mask = (offs_s[None, :] < sink_count) & (offs_kvg[:, None] >= 0)
+    mask_store_score_sink = (offs_s[None, :] < sink_count) & (offs_max_kvg[:, None] < KV_GROUP)
     tl.store(
         output_ptr
         + pid_b * out_stride_b
         + pid_h_kv * KV_GROUP * out_stride_hq
-        + offs_kvg[:, None] * out_stride_hq
+        + offs_max_kvg[:, None] * out_stride_hq
         + offs_s[None, :] * out_stride_t_total,
         logits_sink,
-        mask=mask,
+        mask=mask_store_score_sink,
     )
 
     # Computing the Q * K_Paged
@@ -139,12 +144,12 @@ def qk_kernel(
         )  # [D, PAGE_SIZE] uint8
         x_uint8_low = (x_uint8_low >> shifts[None, :]) & 0x3  # [D, PAGE_SIZE] uint8
         # Loading high 2-bits INT2 (Only boosted channels)
-        mask = boost_mask[:, None] & (offs_pack >= 0)  # [D, PAGE_SIZE], bool
+        mask_load_k_page = boost_mask[:, None] & (offs_pack >= 0)  # [D, PAGE_SIZE], bool
         x_uint8_high = tl.load(
             cache_base + K_OFF_HI
             + boost_idx[:, None] * K_STRIDE_D
             + offs_pack[None, :] * 1,
-            mask=mask,
+            mask=mask_load_k_page,
             other=0.0
         )  # [D_BOOST, PAGE_SIZE] uint8
         x_uint8_high = (x_uint8_high >> shifts[None, :]) & 0x3  # [D_BOOST, PAGE_SIZE] uint8
@@ -155,51 +160,53 @@ def qk_kernel(
         x_fp16 = x_uint8.to(tl.float16)  # [D, PAGE_SIZE]
         x_fp16 = x_fp16 * scale[:, None] + zero_point[:, None]  # [D, PAGE_SIZE]
         ######################## Computing the Q * K_page ########################
-        logits_page = tl.dot(q, x_fp16)  # [KV_GROUP, PAGE_SIZE]
+        logits_page = tl.dot(q, x_fp16)  # [MAX_KV_GROUP, PAGE_SIZE]
         logits_page = logits_page * scaling
         logits_page = logits_page.to(tl.float16)
         ######################## store logits_page ########################
+        mask_store_score_page = (offs_max_kvg[:, None] < KV_GROUP) & (offs_t[None, :] >= 0)
         tl.store(output_ptr
             + pid_b * out_stride_b
             + pid_h_kv * KV_GROUP * out_stride_hq
-            + offs_kvg[:, None] * out_stride_hq
+            + offs_max_kvg[:, None] * out_stride_hq
             + (sink_count + i * PAGE_SIZE + offs_t)[None, :] * out_stride_t_total,
-            logits_page
+            logits_page,
+            mask=mask_store_score_page,
         )
         ######################## iterate next page ########################
         i += 1
 
     # Computing the Q * K_QBuffer
-    mask = (offs_t[:, None] < qbuff_count_k) & (offs_d[None, :] >= 0)
+    mask_load_k_qbuff = (offs_t[:, None] < qbuff_count_k) & (offs_d[None, :] >= 0)
     k_qbuff = tl.load(
         qbuff_ptr_k
         + pid_b * qbuff_stride_b_k
         + pid_h_kv * qbuff_stride_h_k
         + offs_t[:, None] * qbuff_stride_t_k
         + offs_d[None, :] * qbuff_stride_d_k,
-        mask=mask,
+        mask=mask_load_k_qbuff,
         other=0.0
     )
     #
-    logits_qbuff = tl.dot(q, tl.trans(k_qbuff))  # [KV_GROUP, PAGE_SIZE]
+    logits_qbuff = tl.dot(q, tl.trans(k_qbuff))  # [MAX_KV_GROUP, PAGE_SIZE]
     logits_qbuff = logits_qbuff * scaling
     logits_qbuff = logits_qbuff.to(tl.float16)
     #
-    mask = (offs_t[None, :] < qbuff_count_k) & (offs_kvg[:, None] >= 0)
+    mask_store_score_qbuff = (offs_t[None, :] < qbuff_count_k) & (offs_max_kvg[:, None] < KV_GROUP)
     tl.store(
         output_ptr
         + pid_b * out_stride_b
-        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * out_stride_hq
+        + (pid_h_kv * KV_GROUP + offs_max_kvg[:, None]) * out_stride_hq
         + (sink_count + page_count_k * PAGE_SIZE + offs_t)[None, :] * out_stride_t_total,
         logits_qbuff,
-        mask=mask,
+        mask=mask_store_score_qbuff,
     )
 
 
 @triton.jit
 def sv_kernel(
     # softmax logits (Input)
-    attn_score_ptr,                                                                      # fp16 [B, H_Q, t_total]
+    attn_score_ptr,                                                             # fp16 [B, H_Q, t_total]
     attn_score_stride_b, attn_score_stride_hq, attn_score_stride_t_total,
     # Value Cache (Input)
     sink_ptr_v,                                                                 # fp16 [B, H_KV, S, D]
@@ -229,6 +236,8 @@ def sv_kernel(
     PAGE_SIZE: tl.constexpr,
     D: tl.constexpr,
     S: tl.constexpr,              # Sink size
+    # Tiling constants
+    MAX_KV_GROUP: tl.constexpr
 ):
     """
     grid = (B, H_KV)
@@ -247,33 +256,33 @@ def sv_kernel(
 
     # Offsets
     offs_s = tl.arange(0, S)
-    offs_kvg = tl.arange(0, KV_GROUP)
+    offs_max_kvg = tl.arange(0, MAX_KV_GROUP)
     offs_d = tl.arange(0, D)
     offs_t = tl.arange(0, PAGE_SIZE)
     offs_pack = offs_d // 4
     shifts = (offs_d % 4) * 2
 
     # Computing the Sink part
-    mask = (offs_s[None, :] < sink_count) & (offs_kvg[:, None] >= 0)
+    mask_load_score_sink = (offs_s[None, :] < sink_count) & (offs_max_kvg[:, None] < KV_GROUP)
     attn_score_sink = tl.load(
         attn_score_ptr
         + pid_b * attn_score_stride_b
-        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+        + (pid_h_kv * KV_GROUP + offs_max_kvg[:, None]) * attn_score_stride_hq
         + (0 + offs_s[None, :]) * attn_score_stride_t_total,
-        mask=mask,
+        mask=mask_load_score_sink,
         other=0.0
-    )  # [KV_GROUP, S]
-    mask = (offs_s[:, None] < sink_count) & (offs_d[None, :] >= 0)
+    )  # [MAX_KV_GROUP, S]
+    mask_load_v_sink = (offs_s[:, None] < sink_count) & (offs_d[None, :] >= 0)
     v_sink = tl.load(
         sink_ptr_v
         + pid_b * sink_stride_b_v
         + pid_h_kv * sink_stride_h_v
         + offs_s[:, None] * sink_stride_s_v
         + offs_d[None, :] * sink_stride_d_v,
-        mask=mask,
+        mask=mask_load_v_sink,
         other=0.0
     )  # [S, D]
-    attn_output_acc = tl.dot(attn_score_sink, v_sink)  # [KV_GROUP, D]
+    attn_output_acc = tl.dot(attn_score_sink, v_sink)  # [MAX_KV_GROUP, D]
 
     # Computing the Paged part
     i = 0
@@ -306,78 +315,83 @@ def sv_kernel(
         x_fp16 = x_uint8.to(tl.float16)  # [PAGE_SIZE, D]
         x_fp16 = x_fp16 * scale[:, None] + zero_point[:, None]  # [PAGE_SIZE, D]
         ######################## load a page of attention score ########################
+        mask_load_score_page = (offs_max_kvg[:, None] < KV_GROUP) & (offs_t[None, :] >= 0)
         attn_score_page = tl.load(
             attn_score_ptr
             + pid_b * attn_score_stride_b
-            + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+            + (pid_h_kv * KV_GROUP + offs_max_kvg[:, None]) * attn_score_stride_hq
             + (i * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
-        )  # [KV_GROUP, PAGE_SIZE]
+            mask=mask_load_score_page,
+            other=0.0
+        )  # [MAX_KV_GROUP, PAGE_SIZE]
         ######################## compute attn_output_page ########################
-        attn_output_acc = tl.dot(attn_score_page, x_fp16, attn_output_acc)  # [KV_GROUP, D]
+        attn_output_acc = tl.dot(attn_score_page, x_fp16, attn_output_acc)  # [MAX_KV_GROUP, D]
         ######################## iterate next page ########################
         i += 1
 
     # Computing the QBuffer part
     #
-    mask = (offs_t[None, :] < qbuff_count_v) & (offs_kvg[:, None] >= 0)
+    mask_load_score_qbuff = (offs_t[None, :] < qbuff_count_v) & (offs_max_kvg[:, None] < KV_GROUP)
     attn_score_qbuff = tl.load(
         attn_score_ptr
         + pid_b * attn_score_stride_b
-        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+        + (pid_h_kv * KV_GROUP + offs_max_kvg[:, None]) * attn_score_stride_hq
         + (S + page_count_v * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
-        mask=mask,
+        mask=mask_load_score_qbuff,
         other=0.0
     )  # [KV_GROUP, PAGE_SIZE]
     #
-    mask = (offs_t[:, None] < qbuff_count_v) & (offs_d[None, :] >= 0)
+    mask_load_v_qbuff = (offs_t[:, None] < qbuff_count_v) & (offs_d[None, :] >= 0)
     v_qbuff = tl.load(
         qbuff_ptr_v
         + pid_b * qbuff_stride_b_v
         + pid_h_kv * qbuff_stride_h_v
         + offs_t[:, None] * qbuff_stride_t_v
         + offs_d[None, :] * qbuff_stride_d_v,
-        mask=mask,
+        mask=mask_load_v_qbuff,
         other=0.0
     )  # [PAGE_SIZE, D]
     #
-    attn_output_acc = tl.dot(attn_score_qbuff, v_qbuff, attn_output_acc)  # [KV_GROUP, D]
+    attn_output_acc = tl.dot(attn_score_qbuff, v_qbuff, attn_output_acc)  # [MAX_KV_GROUP, D]
 
     # Computing the Local Buffer part
     #
-    mask = (offs_t[None, :] < local_count_v) & (offs_kvg[:, None] >= 0)
+    mask_load_score_local = (offs_t[None, :] < local_count_v) & (offs_max_kvg[:, None] < KV_GROUP)
     attn_score_local = tl.load(
         attn_score_ptr
         + pid_b * attn_score_stride_b
-        + (pid_h_kv * KV_GROUP + offs_kvg[:, None]) * attn_score_stride_hq
+        + (pid_h_kv * KV_GROUP + offs_max_kvg[:, None]) * attn_score_stride_hq
         + (S + page_count_v * PAGE_SIZE + qbuff_count_v + offs_t[None, :]) * attn_score_stride_t_total,
-        mask=mask,
+        mask=mask_load_score_local,
         other=0.0
-    )  # [KV_GROUP, PAGE_SIZE]
+    )  # [MAX_KV_GROUP, PAGE_SIZE]
     #
     offs_local = tl.arange(0, PAGE_SIZE) + local_offset_v
     offs_local = offs_local % PAGE_SIZE
-    mask = (offs_t[:, None] < local_count_v) & (offs_d[None, :] >= 0)
+    mask_load_v_local = (offs_t[:, None] < local_count_v) & (offs_d[None, :] >= 0)
     v_local = tl.load(
         local_ptr
         + pid_b * local_stride_b
         + pid_h_kv * local_stride_h
         + offs_local[:, None] * local_stride_t
         + offs_d[None, :] * local_stride_d,
-        mask=mask,
+        mask=mask_load_v_local,
         other=0.0
     )  # [PAGE_SIZE, D]
     #
-    attn_output_acc = tl.dot(attn_score_local, v_local, attn_output_acc)  # [KV_GROUP, D]
+    attn_output_acc = tl.dot(attn_score_local, v_local, attn_output_acc)  # [MAX_KV_GROUP, D]
 
     # Store attn_output
     attn_output_acc = attn_output_acc.to(tl.float16)
+    mask_store_attn_output = (offs_max_kvg[:, None] < KV_GROUP) & (offs_d[None, :] >= 0)
     tl.store(
         output_ptr
         + output_stride_b * pid_b
         + output_stride_t * 0
-        + output_stride_hq * (pid_h_kv * KV_GROUP + offs_kvg[:, None])
+        + output_stride_hq * (pid_h_kv * KV_GROUP + offs_max_kvg[:, None])
         + output_stride_d * offs_d[None, :],
         attn_output_acc,
+        mask=mask_store_attn_output,
     )
 
 
@@ -395,6 +409,10 @@ def kchanboost_attention_forward(
     assert H_Q == module.num_attention_heads, "H_Q must match num_attention_heads."
     H_KV = module.num_key_value_heads
     KV_GROUP = H_Q // H_KV
+
+    #
+    MAX_KV_GROUP = 16   # Tiling config for tl.dot()
+    assert KV_GROUP <= MAX_KV_GROUP, f"KV_GROUP ({KV_GROUP}) exceeds MAX_KV_GROUP ({MAX_KV_GROUP})."
     
     # Reshape query to [B, KV_GROUP, H_KV, 1, D]
     query = query.view(B, KV_GROUP, H_KV, 1, D)
@@ -443,6 +461,8 @@ def kchanboost_attention_forward(
         D,
         kv_cache.S,
         kv_cache.D_BOOSTED,
+        #
+        MAX_KV_GROUP
     )
 
     # Apply softmax to attention scores
@@ -494,6 +514,8 @@ def kchanboost_attention_forward(
         kv_cache.PAGE_SIZE,
         D,
         kv_cache.S,
+        #
+        MAX_KV_GROUP
     )
 
     # do not return attention scores
