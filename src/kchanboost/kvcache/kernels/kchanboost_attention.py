@@ -40,10 +40,8 @@ def qk_kernel(
     H_Q: tl.constexpr,
     PAGE_SIZE: tl.constexpr,
     D: tl.constexpr,
-    D_BOOST: tl.constexpr,
     S: tl.constexpr,              # Sink size
-    #
-
+    D_BOOST: tl.constexpr,
 ):
     """
     grid = (B, H_KV)
@@ -227,10 +225,10 @@ def sv_kernel(
     local_offset_v,                                                              # int32
     page_count_v,                                                                # int32 
     # Other constants
-    PAGE_SIZE: tl.constexpr,
-    D: tl.constexpr,
     H_KV: tl.constexpr,
     H_Q: tl.constexpr,
+    PAGE_SIZE: tl.constexpr,
+    D: tl.constexpr,
     S: tl.constexpr,              # Sink size
 ):
     """
@@ -394,27 +392,111 @@ def kchanboost_attention_forward(
     assert query.is_contiguous(), "Query tensor must be contiguous."
     B, H_Q, t_query, D = query.size()
     assert t_query == 1, "Only decoding step with t_query=1 is supported."
-
+    assert H_Q == module.num_key_value_heads, "H_Q must match num_key_value_heads."
+    
+    KV_GROUP = module.num_key_value_groups
+    H_KV = H_Q // KV_GROUP
+    assert H_KV == module.num_key_value_heads_per_group, "H_KV must match num_key_value_heads_per_group."
+    
     # Reshape query to [B, KV_GROUP, H_KV, 1, D]
-    query = query.view(B, module.num_key_value_groups, H_Q // module.num_key_value_groups, 1, D)
+    query = query.view(B, KV_GROUP, H_KV, 1, D)
 
-    logits = torch.empty(
-        (B, H_Q, kv_cache.get_seq_length()),
+    # Prepare output tensor for attention scores
+    t_total_kvcache = kv_cache.get_seq_length()
+    attn_score = torch.empty(
+        (B, H_Q, t_total_kvcache),
         dtype=query.dtype,
         device=query.device,
     )
 
-    key_states = repeat_kv(key, module.num_key_value_groups)
-    value_states = repeat_kv(value, module.num_key_value_groups)
+    # Launch QK kernel
+    grid = (B, module.num_key_value_groups)
+    qk_kernel[grid](
+        # Query
+        query,
+        query.stride(0), query.stride(2), query.stride(1), query.stride(3), query.stride(4),
+        # Key Cache
+        kv_cache.Sink_Buffer_K,
+        kv_cache.Sink_Buffer_K.stride(0), kv_cache.Sink_Buffer_K.stride(1),
+        kv_cache.Sink_Buffer_K.stride(2), kv_cache.Sink_Buffer_K.stride(3),
+        kv_cache.Q_Buffer_K,
+        kv_cache.Q_Buffer_K.stride(0), kv_cache.Q_Buffer_K.stride(1),
+        kv_cache.Q_Buffer_K.stride(2), kv_cache.Q_Buffer_K.stride(3),
+        kv_cache.PageTable_K,
+        kv_cache.PageTable_K.stride(0), kv_cache.PageTable_K.stride(1),
+        kv_cache.KeyCache,
+        kv_cache.KeyCache.stride(0), kv_cache.KeyCache.stride(1),
+        kv_cache.KeyCache_metadata,
+        kv_cache.KeyCache_metadata.stride(0), kv_cache.KeyCache_metadata.stride(1),
+        kv_cache.KeyCache_metadata.stride(2), kv_cache.KeyCache_metadata.stride(3),
+        # Scaling
+        scaling,
+        # Output
+        attn_score,
+        attn_score.stride(0), attn_score.stride(1), attn_score.stride(2),
+        # Variables
+        kv_cache.Sink_Count,
+        kv_cache.Q_Buffer_Count_K,
+        kv_cache.PageCount_K,
+        # Other constants
+        H_KV,
+        H_Q,
+        kv_cache.PAGE_SIZE,
+        D,
+        kv_cache.S,
+        kv_cache.D_BOOSTED,
+    )
 
-    attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
-    if attention_mask is not None:
-        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-        attn_weights = attn_weights + causal_mask
+    # Apply softmax to attention scores
+    attn_score = nn.functional.softmax(attn_score, dim=-1, dtype=torch.float32).to(query.dtype)
 
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
-    attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
-    attn_output = torch.matmul(attn_weights, value_states)
-    attn_output = attn_output.transpose(1, 2).contiguous()
+    # Prepare output tensor for attention output
+    # Output in shape [B, T=1, H_Q, D] to be compatible with huggingface transformers.  
+    attn_output = torch.empty(
+        (B, t_query, H_Q, D),
+        dtype=query.dtype,
+        device=query.device,
+    )
 
-    return attn_output, attn_weights
+    # Launch SV kernel
+    grid = (B, H_KV)
+    sv_kernel[grid](
+        # softmax logits (Input)
+        attn_score,
+        attn_score.stride(0), attn_score.stride(1), attn_score.stride(2),
+        # Value Cache (Input)
+        kv_cache.Sink_Buffer_V,
+        kv_cache.Sink_Buffer_V.stride(0), kv_cache.Sink_Buffer_V.stride(1),
+        kv_cache.Sink_Buffer_V.stride(2), kv_cache.Sink_Buffer_V.stride(3),
+        kv_cache.Q_Buffer_V,
+        kv_cache.Q_Buffer_V.stride(0), kv_cache.Q_Buffer_V.stride(1),
+        kv_cache.Q_Buffer_V.stride(2), kv_cache.Q_Buffer_V.stride(3),
+        kv_cache.Local_Buffer_V,
+        kv_cache.Local_Buffer_V.stride(0), kv_cache.Local_Buffer_V.stride(1),
+        kv_cache.Local_Buffer_V.stride(2), kv_cache.Local_Buffer_V.stride(3),
+        kv_cache.PageTable_V,
+        kv_cache.PageTable_V.stride(0), kv_cache.PageTable_V.stride(1),
+        kv_cache.ValueCache,
+        kv_cache.ValueCache.stride(0), kv_cache.ValueCache.stride(1),
+        kv_cache.ValueCache_metadata,
+        kv_cache.ValueCache_metadata.stride(0), kv_cache.ValueCache_metadata.stride(1),
+        kv_cache.ValueCache_metadata.stride(2), kv_cache.ValueCache_metadata.stride(3),
+        # Output
+        attn_output,
+        attn_output.stride(0), attn_output.stride(1), attn_output.stride(2), attn_output.stride(3),
+        # Variables
+        kv_cache.Sink_Count,
+        kv_cache.Q_Buffer_Count_V,
+        kv_cache.Local_Buffer_Count_V,
+        kv_cache.Local_Buffer_Offset_V,
+        kv_cache.PageCount_V,
+        # Other constants
+        H_KV,
+        H_Q,
+        kv_cache.PAGE_SIZE,
+        D,
+        kv_cache.S,
+    )
+
+    # do not return attention scores
+    return attn_output, None
