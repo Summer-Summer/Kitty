@@ -1,3 +1,5 @@
+# src/kchanboost/kvcache/kernels/kchanboost_quant_pack.py
+
 import torch
 import triton
 import triton.language as tl
@@ -324,7 +326,7 @@ def quantize_pack_v(
     cache: torch.Tensor,                        # (MAX_BS * MAX_PAGE, bytes_per_page_V), uint8
     cache_metadata: torch.Tensor,               # (MAX_BS * MAX_PAGE, H_KV, PAGE_SIZE, 2), float16
     #
-    pages_size: int,                            # page size
+    page_size: int,                            # page size
 ):
     """
     Quantize and pack the value states into the paged value cache.
@@ -333,8 +335,8 @@ def quantize_pack_v(
     B, H_KV, _, D = value_states.shape
 
     # Slicing the value states to pages
-    value_to_quantize = value_states[:, :, value_states_t_offset : value_states_t_offset + pages_size * value_states_page_count, :].contiguous() # (B, H_KV, page_count*PAGE_SIZE, D)
-    value_to_quantize = value_to_quantize.view(B, H_KV, value_states_page_count, pages_size, D)    # (B, H_KV, page_count, PAGE_SIZE, D) 
+    value_to_quantize = value_states[:, :, value_states_t_offset : value_states_t_offset + page_size * value_states_page_count, :].contiguous() # (B, H_KV, page_count*PAGE_SIZE, D)
+    value_to_quantize = value_to_quantize.view(B, H_KV, value_states_page_count, page_size, D)    # (B, H_KV, page_count, PAGE_SIZE, D) 
 
     # Launch Triton kernel
     grid = (B, value_states_page_count, H_KV)
@@ -352,7 +354,7 @@ def quantize_pack_v(
         cache_metadata,
         cache_metadata.stride(0), cache_metadata.stride(1), cache_metadata.stride(2), cache_metadata.stride(3),
         # Constants
-        pages_size,
+        page_size,
         D,
     )
 

@@ -1,10 +1,9 @@
+# src/kchanboost/kvcache/kernels/kchanboost_attention.py
+
 import torch
 import torch.nn as nn
-from typing import Optional
-import math
 
-from kchanboost.kvcache.utils import KVCache_Layer
-
+from kchanboost.kvcache.utils_kv_per_layer import KVCache_Layer
 
 import triton
 import triton.language as tl
@@ -392,11 +391,10 @@ def kchanboost_attention_forward(
     assert query.is_contiguous(), "Query tensor must be contiguous."
     B, H_Q, t_query, D = query.size()
     assert t_query == 1, "Only decoding step with t_query=1 is supported."
-    assert H_Q == module.num_key_value_heads, "H_Q must match num_key_value_heads."
-    
-    KV_GROUP = module.num_key_value_groups
-    H_KV = H_Q // KV_GROUP
-    assert H_KV == module.num_key_value_heads_per_group, "H_KV must match num_key_value_heads_per_group."
+
+    assert H_Q == module.num_attention_heads, "H_Q must match num_attention_heads."
+    H_KV = module.num_key_value_heads
+    KV_GROUP = H_Q // H_KV
     
     # Reshape query to [B, KV_GROUP, H_KV, 1, D]
     query = query.view(B, KV_GROUP, H_KV, 1, D)
@@ -410,11 +408,11 @@ def kchanboost_attention_forward(
     )
 
     # Launch QK kernel
-    grid = (B, module.num_key_value_groups)
+    grid = (B, H_KV)
     qk_kernel[grid](
         # Query
         query,
-        query.stride(0), query.stride(2), query.stride(1), query.stride(3), query.stride(4),
+        query.stride(0), query.stride(1), query.stride(2), query.stride(3), query.stride(4),
         # Key Cache
         kv_cache.Sink_Buffer_K,
         kv_cache.Sink_Buffer_K.stride(0), kv_cache.Sink_Buffer_K.stride(1),
@@ -487,8 +485,8 @@ def kchanboost_attention_forward(
         # Variables
         kv_cache.Sink_Count,
         kv_cache.Q_Buffer_Count_V,
-        kv_cache.Local_Buffer_Count_V,
-        kv_cache.Local_Buffer_Offset_V,
+        kv_cache.Local_Count_V,
+        kv_cache.Write_Offset_Local_V,
         kv_cache.PageCount_V,
         # Other constants
         H_KV,

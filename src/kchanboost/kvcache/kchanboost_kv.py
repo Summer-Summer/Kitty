@@ -1,3 +1,5 @@
+# src/kchanboost/kvcache/kchanboost_kv.py
+
 # Inspired by https://github.com/huggingface/transformers/blob/main/src/transformers/cache_utils.py.
 # Author: Haojun Xia (xhjustc@gmail.com)
 
@@ -12,7 +14,7 @@ from transformers.configuration_utils import PretrainedConfig
 
 #
 from .kernels.kchanboost_quant_pack import quantize_pack_k, quantize_pack_v
-from .utils import KVCache_Layer
+from .utils_kv_per_layer import KVCache_Layer
         
 
 class KChanBoostCache(Cache):
@@ -134,15 +136,21 @@ class KChanBoostCache(Cache):
         if pages_k > 0:
             quantize_pack_k(
                 # data source
-                key_states = kvcache.key_states,
-                key_states_t_offset = len_sink,
-                key_states_page_count = pages_k,
-                pages_size = kvcache.PAGE_SIZE,
+                kvcache.key_states,
+                len_sink,
+                pages_k,
                 # data destination
-                page_table_k = kvcache.PageTable_K,
-                page_table_k_metadata = kvcache.PageTable_K_metadata,
-                page_count_k = kvcache.PageCount_K,
+                kvcache.PageTable_K,
+                0,
+                kvcache.KeyCache,
+                kvcache.KeyCache_metadata,
+                # constants
+                kvcache.PAGE_SIZE,
+                kvcache.D_BOOSTED,
             )
+            #
+            kvcache.PageCount_K += pages_k
+
         # V Cache
         len_local_v = max(0, min(kvcache.PAGE_SIZE, len_prefill - len_sink))
         len_qbuf_v = max(0, len_prefill - len_sink - len_local_v) % kvcache.PAGE_SIZE
@@ -160,14 +168,16 @@ class KChanBoostCache(Cache):
             assert len_prefill - len_sink - len_local_v - len_qbuf_v == pages_v * kvcache.PAGE_SIZE
             quantize_pack_v(
                 # data source
-                value_states = kvcache.value_states,
-                value_states_t_offset = len_sink,
-                value_states_page_count = pages_v,
-                pages_size = kvcache.PAGE_SIZE,
+                kvcache.value_states,
+                len_sink,
+                pages_v,
                 # data destination
-                page_table_v = kvcache.PageTable_V,
-                page_table_v_metadata = kvcache.PageTable_V_metadata,
-                page_count_v = kvcache.PageCount_V,
+                kvcache.PageTable_V,
+                0,
+                kvcache.ValueCache,
+                kvcache.ValueCache_metadata,
+                # constants
+                kvcache.PAGE_SIZE,
             )
             kvcache.PageCount_V += pages_v
         # Clear the legacy states
@@ -185,14 +195,17 @@ class KChanBoostCache(Cache):
         if kvcache.Q_Buffer_Count_K == kvcache.PAGE_SIZE:
             quantize_pack_k(
                 # data source
-                key_states = kvcache.Q_Buffer_K,
-                key_states_t_offset = 0,
-                key_states_page_count = 1,
-                pages_size = kvcache.PAGE_SIZE,
+                kvcache.Q_Buffer_K,
+                0,
+                1,
                 # data destination
-                page_table_k = kvcache.PageTable_K,
-                page_table_k_metadata = kvcache.PageTable_K_metadata,
-                page_count_k = kvcache.PageCount_K,
+                kvcache.PageTable_K,
+                kvcache.PageCount_K,
+                kvcache.KeyCache,
+                kvcache.KeyCache_metadata,
+                # constants
+                kvcache.PAGE_SIZE,
+                kvcache.D_BOOSTED,
             )
             kvcache.PageCount_K += 1
             kvcache.Q_Buffer_Count_K = 0
@@ -200,14 +213,16 @@ class KChanBoostCache(Cache):
         if kvcache.Q_Buffer_Count_V == kvcache.PAGE_SIZE:
             quantize_pack_v(
                 # data source
-                value_states = kvcache.Q_Buffer_V,
-                value_states_t_offset = 0,
-                value_states_page_count = 1,
-                pages_size = kvcache.PAGE_SIZE,
+                kvcache.Q_Buffer_V,
+                0,
+                1,
                 # data destination
-                page_table_v = kvcache.PageTable_V,
-                page_table_v_metadata = kvcache.PageTable_V_metadata,
-                page_count_v = kvcache.PageCount_V,
+                kvcache.PageTable_V,
+                kvcache.PageCount_V,
+                kvcache.ValueCache,
+                kvcache.ValueCache_metadata,
+                # constants
+                kvcache.PAGE_SIZE,
             )
             kvcache.PageCount_V += 1
             kvcache.Q_Buffer_Count_V = 0

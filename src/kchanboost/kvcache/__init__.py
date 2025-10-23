@@ -1,4 +1,4 @@
-# kchanboost/kvcache/__init__.py
+# src/kchanboost/kvcache/__init__.py
 """
 KChanBoost KV Cache Module
 """
@@ -6,7 +6,7 @@ KChanBoost KV Cache Module
 from .kchanboost_kv import KChanBoostCache
 from .kchanboost_kv import get_kvcache_kchanboost
 
-__ALL__ = [
+__all__ = [
     "KChanBoostCache",
     "get_kvcache_kchanboost",
 ]

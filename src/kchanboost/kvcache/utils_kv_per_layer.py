@@ -1,3 +1,5 @@
+# src/kchanboost/kvcache/utils_kv_per_layer.py
+
 import math
 from typing import Optional, Callable
 import torch
@@ -71,7 +73,7 @@ class KVCache_Layer:
             device='cuda'
         )
         self.Local_Count_V = 0
-        self.Write_Offset_Local_V = 0
+        self.Write_Offset_Local_V = 0       # To track the write offset in the local buffer, circular buffer.
         # Legacy for compatibility of prefills
         self.key_states: Optional[torch.Tensor] = None
         self.value_states: Optional[torch.Tensor] = None
