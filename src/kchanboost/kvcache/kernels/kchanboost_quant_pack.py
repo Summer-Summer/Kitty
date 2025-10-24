@@ -107,22 +107,18 @@ def quantize_pack_k_kernel(
         tl.clamp(x_q, 0.0, 3.0))
     x_q = x_q.to(tl.uint8) # [PAGE_SIZE, D]
 
-    # packing INT2 and the low 2bits of INT4, each channel of PAGE_SIZE tokens are continuously packed.
+    # packing Ithe low 2bits of INT2 and INT4, the elements of each channel are continuously packed.
     tl.static_assert(PAGE_SIZE % 4 == 0, "PAGE_SIZE must be multiple of 4 for int2 packing.")
-    # 1. 创建位移量 [0, 2, 4, 6, 0, 2, 4, 6, ...]
-    shifts = (offs_t % 4) * 2
-    # 2. 并行地对 [PAGE_SIZE, D] 中的所有元素进行位移
-    x_shifted = (x_q & 0x3) << shifts[:, None]
-    # 3. 重塑为 [PAGE_SIZE // 4, 4, D]
-    x_grouped = tl.reshape(x_shifted, (PAGE_SIZE // 4, 4, D))
-    # 4. 沿最后一个维度求和 (Sum == Bitwise OR，因为位不重叠)
-    packed = tl.sum(x_grouped, axis=1).to(tl.uint8)     # [PAGE_SIZE // 4, D]
+    shifts = (offs_t % 4) * 2                                   # 0. shift offsets: [0, 2, 4, 6, 0, 2, 4, 6, ...]     
+    x_shifted = (x_q & 0x3) << shifts[:, None]                  # 1. shift [PAGE_SIZE, D] elements in parallel
+    x_grouped = tl.reshape(x_shifted, (PAGE_SIZE // 4, 4, D))   # 2. reshape to [PAGE_SIZE // 4, 4, D]
+    packed = tl.sum(x_grouped, axis=1).to(tl.uint8)             # 3. Sum == Bitwise OR, because the bits do not overlap
 
     # packing the high 2bits of INT4
-    x_q = x_q >> 2                                      # keep only the high 2 bits
-    x_shifted2 = (x_q & 0x3) << shifts[:, None]
-    x_grouped2 = tl.reshape(x_shifted2, (PAGE_SIZE // 4, 4, D))
-    packed2 = tl.sum(x_grouped2, axis=1).to(tl.uint8)     # [PAGE_SIZE // 4, D]
+    x_q = (x_q >> 2) & 0x3                                      # keep only the high 2 bits
+    x_shifted2 = x_q << shifts[:, None]                         # 1. shift [PAGE_SIZE, D] elements in parallel
+    x_grouped2 = tl.reshape(x_shifted2, (PAGE_SIZE // 4, 4, D)) # 2. reshape to [PAGE_SIZE // 4, 4, D]
+    packed2 = tl.sum(x_grouped2, axis=1).to(tl.uint8)           # 3. Sum == Bitwise OR, because the bits do not overlap
 
     # store packed data (INT2)
     cache_base = cache_ptr + page_id * cache_stride_bp + pid_h * K_STRIDE_H_KV
@@ -188,21 +184,20 @@ def quantize_pack_v_kernel(
     offs_t = tl.arange(0, PAGE_SIZE)
     offs_d = tl.arange(0, D)
 
-    # Reading the original fp16 value states, [PAGE_SIZE, D]
+    # Reading the original fp16 value states
     src_ptr = value_ptr + pid_b * value_stride_b + pid_h * value_stride_h + (pid_page * PAGE_SIZE) * value_stride_t
     x = tl.load(
         src_ptr
-        + offs_t[:, None] * value_stride_t
-        + offs_d[None, :] * value_stride_d
-    )   # [PAGE_SIZE, D]
+        + offs_d[:, None] * value_stride_d
+        + offs_t[None, :] * value_stride_t
+    )   # [D, PAGE_SIZE]
 
     # Computing the quantization parameters
     # Asynmetric group-wise quantization along D (per token), storing the fp16 scale & x_min
-    x_max = tl.max(x, axis=1)
-    x_min = tl.min(x, axis=1)                           # [PAGE_SIZE]
-    scale = (x_max - x_min) / 3.0  # for int2
-    # avoid divide by zero
-    scale = tl.where(scale < 1e-6, 1e-6, scale)         # [PAGE_SIZE]
+    x_max = tl.max(x, axis=0)
+    x_min = tl.min(x, axis=0)                           # [PAGE_SIZE]
+    scale = (x_max - x_min) / 3.0                       # 3.0 for int2
+    scale = tl.where(scale < 1e-6, 1e-6, scale)         # avoid divide by zero
 
     # page id
     page_id = tl.load(
@@ -225,29 +220,27 @@ def quantize_pack_v_kernel(
         x_min.to(tl.float16))
 
     # quantize to int2
-    x_f = (x - x_min[:, None]) / scale[:, None]
+    x_f = (x - x_min[None, :]) / scale[None, :]
     x_q = tl.floor(x_f + 0.5)
     x_q = tl.clamp(x_q, 0.0, 3.0)
-    x_q = x_q.to(tl.uint8)                          # [PAGE_SIZE, D]
+    x_q = x_q.to(tl.uint8)                          # [D, PAGE_SIZE]
 
     # packing, the D channels of each token is continuously packed.
     tl.static_assert(D % 4 == 0, "D must be multiple of 4 for int2 quantization.")
-    NUM_PACKED = D // 4
-    # 1. 创建位移量 [0, 2, 4, 6, 0, 2, 4, 6, ...]
-    shifts = (offs_d % 4) * 2
-    # 2. 并行地对 [PAGE_SIZE, D] 中的所有元素进行位移
-    x_shifted = (x_q & 0x3) << shifts[None, :]
-    # 3. 重塑为 [PAGE_SIZE, NUM_PACKED, 4]
-    x_grouped = tl.reshape(x_shifted, (PAGE_SIZE, NUM_PACKED, 4))
-    # 4. 沿最后一个维度求和 (Sum == Bitwise OR，因为位不重叠)
-    packed = tl.sum(x_grouped, axis=2).to(tl.uint8)     # [PAGE_SIZE, D // 4]
+    shifts = (offs_d % 4) * 2                                   # 1. shift offsets: [0, 2, 4, 6, 0, 2, 4, 6, ...]
+    x_shifted = (x_q & 0x3) << shifts[:, None]                  # 2. parallel shifting
+    x_grouped = tl.reshape(x_shifted, (D//4, 4, PAGE_SIZE))     # 3. reshape to [D//4, 4, PAGE_SIZE]
+    packed = tl.sum(x_grouped, axis=1).to(tl.uint8)             # 4. Sum == Bitwise OR，because bits do not overlap.
 
     # store packed data
+    # packed: [D // 4, PAGE_SIZE], each element contains 4 quantized values and these 4 values are from continuous 4 channels of a token.
+    # we need to transpose it to [PAGE_SIZE, D // 4] so that each token's data are continuous in memory.
+    # However, we choose to swap the strides of the destination tensor instead of transposing the data for efficiency.
     cache_base = cache_ptr + page_id * cache_stride_bp + pid_h * V_STRIDE_H_KV
     tl.store(
         cache_base
-        + offs_t[:, None] * NUM_PACKED
-        + tl.arange(0, NUM_PACKED)[None, :],
+        + offs_t[None, :] * V_STRIDE_T
+        + tl.arange(0, D//4)[:, None],
         packed
     )
 
@@ -288,7 +281,7 @@ def quantize_pack_k(
 
     # Note: idx=d_boost means this channel is not boosted.
     dense_to_sparse_idx = torch.full((B, H_KV, key_states_page_count, D), d_boost, dtype=torch.uint8, device=key_states.device)
-    dense_to_sparse_idx.scatter_(-1, top_idx, torch.arange(d_boost, device=key_states.device, dtype=torch.uint8).view(1, 1, 1, -1))
+    dense_to_sparse_idx.scatter_(-1, top_idx, torch.arange(d_boost, device=key_states.device, dtype=torch.uint8).view(1, 1, 1, -1).expand_as(top_idx))
 
     # Launch Triton kernel
     grid = (B, key_states_page_count, H_KV)
