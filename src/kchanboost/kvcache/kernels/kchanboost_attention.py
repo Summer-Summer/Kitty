@@ -219,8 +219,8 @@ def sv_kernel(
     page_table_stride_b_v, page_table_stride_p_v,
     vcache_ptr,                                                                 # uint8 [MAX_BS * self.MAX_PAGE, BYTES_PER_PAGE_V,]
     vcache_stride_p, vcache_stride_last,
-    vcache_meta_ptr,                                                            # fp16 [MAX_BS * self.MAX_PAGE, H_KV, D, 2]
-    vcache_meta_stride_p, vcache_meta_stride_h, vcache_meta_stride_d, vcache_meta_stride_last,
+    vcache_meta_ptr,                                                            # fp16 [MAX_BS * self.MAX_PAGE, H_KV, PAGE_SIZE, 2]
+    vcache_meta_stride_p, vcache_meta_stride_h, vcache_meta_stride_t, vcache_meta_stride_last,
     # Output in shape [B, T=1, H_Q, D] to be compatible with huggingface transformers.
     output_ptr,                                                                 # fp16 [B, H_Q, 1, D]
     output_stride_b, output_stride_t, output_stride_hq, output_stride_d,
@@ -297,11 +297,11 @@ def sv_kernel(
         meta_base = vcache_meta_ptr + page_id * vcache_meta_stride_p + pid_h_kv * vcache_meta_stride_h
         scale = tl.load(
             meta_base 
-            + offs_t * vcache_meta_stride_d
+            + offs_t * vcache_meta_stride_t
             + 0 * vcache_meta_stride_last)  # [PAGE_SIZE]
         zero_point = tl.load(
             meta_base 
-            + offs_t * vcache_meta_stride_d
+            + offs_t * vcache_meta_stride_t
             + 1 * vcache_meta_stride_last)  # [PAGE_SIZE]
         ######################## load quantized V_page ########################
         cache_base = vcache_ptr + page_id * vcache_stride_p + pid_h_kv * V_STRIDE_H_KV
