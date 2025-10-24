@@ -169,7 +169,7 @@ def main() -> None:
     prompt = [prompt for _ in range(args.batch_size)]
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     #
-    APPLY_CHAT_TEMPLATE = False
+    APPLY_CHAT_TEMPLATE = True
     if APPLY_CHAT_TEMPLATE:
         messages = [[{"role": "user", "content": p}] for p in prompt]
         texts = tokenizer.apply_chat_template(

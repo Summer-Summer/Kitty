@@ -320,7 +320,7 @@ def sv_kernel(
             attn_score_ptr
             + pid_b * attn_score_stride_b
             + (pid_h_kv * KV_GROUP + offs_max_kvg[:, None]) * attn_score_stride_hq
-            + (i * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
+            + (S + i * PAGE_SIZE + offs_t[None, :]) * attn_score_stride_t_total,
             mask=mask_load_score_page,
             other=0.0
         )  # [MAX_KV_GROUP, PAGE_SIZE]
