@@ -106,7 +106,6 @@ def get_prompt(prompt_choice: int) -> tuple[str, str]:
     else:
         task_name = "general"
         prompt = "现在父亲的年龄是儿子的 3 倍。再过 15 年后，父亲的年龄会是儿子的 2 倍。请回答以下两个问题： 1.现在父亲几岁？ 2.现在儿子几岁？"
-        prompt = "hello"
     return task_name, prompt
 
 

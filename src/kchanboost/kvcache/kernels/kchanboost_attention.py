@@ -12,8 +12,8 @@ import triton.language as tl
 @triton.jit
 def qk_kernel(
     # Query (t=1 for decoding step)
-    q_ptr,                                                                      # fp16 [B, KV_GROUP, H_KV, 1, D]
-    q_stride_b, q_stride_kvg, q_stride_h, q_stride_t, q_stride_d,
+    q_ptr,                                                                      # fp16 [B, H_KV, KV_GROUP, 1, D]
+    q_stride_b, q_stride_h, q_stride_kvg, q_stride_t, q_stride_d,
     # Key Cache
     sink_ptr_k,                                                                 # fp16 [B, H_KV, S, D]
     sink_stride_b_k, sink_stride_h_k, sink_stride_s_k, sink_stride_d_k,
@@ -414,8 +414,8 @@ def kchanboost_attention_forward(
     MAX_KV_GROUP = 16   # Tiling config for tl.dot()
     assert KV_GROUP <= MAX_KV_GROUP, f"KV_GROUP ({KV_GROUP}) exceeds MAX_KV_GROUP ({MAX_KV_GROUP})."
     
-    # Reshape query to [B, KV_GROUP, H_KV, 1, D]
-    query = query.view(B, KV_GROUP, H_KV, 1, D)
+    # Reshape query to [B, H_KV, KV_GROUP, 1, D]
+    query = query.view(B, H_KV, KV_GROUP, 1, D)
 
     # Prepare output tensor for attention scores
     t_total_kvcache = kv_cache.get_total_length()
