@@ -184,7 +184,7 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
     # For DEBUG mode, limit the number of samples
     limit = None
     if DEBUG:
-        limit = 3
+        limit = 8
 
     print("=" * 80)
     print("Evaluating model accuracy on downstream tasks...")
@@ -274,3 +274,202 @@ def test_model_generate(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs
     print('-' * width)
     #
     return outputs
+
+########################################### Used by cli/eval_hf_kv.py ###########################################
+@torch.no_grad()
+def eval_model_downstream_hf(
+    model: PreTrainedModel, 
+    task: str, 
+    ModelName: str,
+    fileName: str, 
+    DEBUG: bool = False, 
+    hf_cache_config: Optional[dict] = None,
+    num_repeats: int = None, 
+    batch_size: int = 8, 
+    max_new_tokens: int = 4096, 
+    results_dir: str = "./eval_results"
+):
+    """
+    Evaluate model on downstream tasks using HuggingFace native quantized KV Cache.
+    
+    Args:
+        model: PreTrainedModel to evaluate
+        task: Task name (e.g., "gsm8k_cot_llama")
+        ModelName: Model short name for file paths
+        fileName: Configuration identifier for file naming
+        DEBUG: Debug mode (limit=8)
+        hf_cache_config: HF cache configuration dict with structure:
+            {
+                "cache_implementation": "quantized",
+                "cache_config": {
+                    "backend": "HQQ",
+                    "nbits": 4,
+                    "axis_key": 1,
+                    "axis_value": 1
+                }
+            }
+        num_repeats: Number of evaluation repeats
+        batch_size: Batch size for inference
+        max_new_tokens: Maximum number of new tokens to generate
+        results_dir: Directory to save results
+    """
+    from lm_eval.models.huggingface import HFLM
+    from lm_eval.tasks import TaskManager
+    
+    lm = HFLM(model, batch_size=batch_size)
+    
+    # If num_repeats is not specified, try to read from task config
+    if num_repeats is None:
+        try:
+            task_manager = TaskManager()
+            task_dict = task_manager.load_task_or_group([task])
+            task_obj = task_dict[task][0] if isinstance(task_dict[task], list) else task_dict[task]
+            num_repeats = getattr(task_obj.config, 'repeats', 1)
+            print(f"[Info] Using repeats={num_repeats} from task YAML config")
+        except Exception as e:
+            print(f"[Warning] Could not read repeats from task config: {e}. Using default repeats=1")
+            num_repeats = 1
+
+    # Build model_configs
+    model_configs = {}
+    model_configs["ModelArch"] = model.__class__.__name__
+    model_configs["ModelPath"] = model.config._name_or_path
+    model_configs["cache_type"] = "hf_quantized"
+    
+    if hf_cache_config is not None:
+        model_configs["cache_implementation"] = hf_cache_config["cache_implementation"]
+        model_configs["cache_backend"] = hf_cache_config["cache_config"]["backend"]
+        model_configs["cache_nbits"] = hf_cache_config["cache_config"]["nbits"]
+        model_configs["cache_axis_key"] = hf_cache_config["cache_config"]["axis_key"]
+        model_configs["cache_axis_value"] = hf_cache_config["cache_config"]["axis_value"]
+
+    # Set the number of shots for different tasks
+    few_shot_dict = {"mmlu": 4, "gsm8k": 8, "gpqa": 5, "math": 4, "bbh": 3}
+    for key, value in few_shot_dict.items():
+        if key in task:
+            num_fewshot = value
+            break
+    else:
+        num_fewshot = 0
+
+    # Model-specific stop words
+    model_name = model.config._name_or_path.lower()
+    
+    if "qwen" in model_name:
+        # Qwen models
+        stop_words = [
+            "<|endoftext|>",       # Qwen-3  (151643)   real EOS
+            "<|im_end|>",          # Qwen-3  (151645)   message ended
+        ]
+    elif "llama" in model_name:
+        # LLaMA models
+        stop_words = [
+            "<|end_of_text|>",     # Llama-3 (128001)   real EOS
+            "<|eot_id|>",          # Llama-3 (128009)   turn ended
+            "<|end_header_id|>",   # Llama-3 (128008)   head ended
+        ]
+    else:
+        # Fallback: include all common stop tokens
+        stop_words = [
+            "<|end_of_text|>",     # Llama-3
+            "<|eot_id|>",          # Llama-3
+            "<|end_header_id|>",   # Llama-3
+            "<|endoftext|>",       # Qwen-3
+            "<|im_end|>",          # Qwen-3
+        ]
+    
+    # Set the stop words for different tasks
+    stop_words_dict = {
+        "gsm8k":     ["Given the following problem"],
+        "math":      ["Problem:"],
+        "gpqa":      ["Question:"],
+        "humaneval": ["\n```"],
+        "aime":      ["Given the following problem"],
+    }
+    for key, value in stop_words_dict.items():
+        if key in task:
+            stop_words.extend(value)
+            break
+    
+    # Build gen_kwargs with HF cache configuration
+    gen_kwargs = {
+            "max_new_tokens": max_new_tokens,
+            "max_length": None,
+            "until": stop_words,
+        }
+    
+    # Add HF cache configuration
+    if hf_cache_config is not None:
+        gen_kwargs.update(hf_cache_config)
+        # This adds:
+        # gen_kwargs["cache_implementation"] = "quantized"
+        # gen_kwargs["cache_config"] = {"backend": "HQQ", "nbits": 4, ...}
+
+    # Enable code evaluation for humaneval task
+    if "humaneval" in task:
+        os.environ["HF_ALLOW_CODE_EVAL"] = "1"
+    
+    # For DEBUG mode, limit the number of samples
+    limit = None
+    if DEBUG:
+        limit = 8
+
+    print("=" * 80)
+    print("Evaluating model accuracy on downstream tasks...")
+    print("ModelName: ", model_configs["ModelPath"])
+    print("Task: ", task)
+    print("Eval_Configs: ", fileName)
+    print("Cache_Type: HF Quantized KV Cache")
+    if hf_cache_config:
+        print(f"  Backend: {hf_cache_config['cache_config']['backend']}")
+        print(f"  Quantization: {hf_cache_config['cache_config']['nbits']}-bit")
+        print(f"  Axis: key={hf_cache_config['cache_config']['axis_key']}, value={hf_cache_config['cache_config']['axis_value']}")
+    print("Num_Fewshot: ", num_fewshot)
+    print("Num_Repeats: ", num_repeats)
+    print("Batch_Size: ", batch_size)
+    print("GPU Memory:")
+    print_gpu_memory()
+    print("=" * 80)
+
+    # Prepare output directory
+    FileDir = "{}/{}/{}".format(results_dir, ModelName, task)
+    if not os.path.exists(FileDir):
+        os.makedirs(FileDir, exist_ok=True)
+    
+    # Check which repeats are already completed (for checkpoint resumption)
+    completed_repeats, all_results = load_completed_repeats(FileDir, fileName, num_repeats)
+    all_completed = print_checkpoint_status(completed_repeats, num_repeats)
+    
+    # Run evaluations for remaining repeats (skip if all completed)
+    if not all_completed:
+        all_results = run_evaluation_repeats(
+            lm=lm,
+            model=model,
+            task=task,
+            num_fewshot=num_fewshot,
+            limit=limit,
+            gen_kwargs=gen_kwargs,
+            model_configs=model_configs,
+            kv_cache=None,  # For HF cache, we pass config via gen_kwargs, not past_key_values
+            file_dir=FileDir,
+            file_name=fileName,
+            num_repeats=num_repeats,
+            completed_repeats=completed_repeats,
+            all_results=all_results,
+            batch_size=batch_size
+        )
+    
+    # Generate summary statistics across all repeats
+    print(f"\n{'='*80}")
+    print("Generating summary statistics...")
+    print(f"{'='*80}\n")
+    
+    summary = generate_summary_statistics(all_results, task, model_configs, num_repeats)
+    
+    # Create subdirectory for this configuration and save summary file
+    config_dir = "{}/{}".format(FileDir, fileName)
+    os.makedirs(config_dir, exist_ok=True)
+    summary_file = "{}/{}_summary.json".format(config_dir, fileName)
+    with open(summary_file, "w") as f:
+        json.dump(summary, f, indent=4)
+    print(f"[Saved] Summary statistics: {summary_file}")

@@ -155,3 +155,44 @@ run_hf_baseline () {
   " > ${LOG_BASE_DIR}/${log_name} 2>&1 &
   wait
 }
+
+
+# 通用函数：HuggingFace Quantized KV Cache
+run_hf_quantized_exp () {
+  local backend=$1        # "HQQ" or "quanto"
+  local nbits=$2          # 2, 4, 8
+  local axis_key=$3       # 0 or 1 (HQQ: 1, quanto: 0)
+  local axis_value=$4     # 0 or 1 (HQQ: 1, quanto: 0)
+  
+  # Use NUM_REPEATS from environment, default to 1
+  local repeats=${NUM_REPEATS:-1}
+  local debug_flag=""
+  if [ "${DEBUG}" = "1" ] || [ "${DEBUG}" = "true" ]; then
+    repeats=1
+    debug_flag="--debug"
+  fi
+  
+  echo "Launching $TASK_NAME on GPUs $GPUs"
+  echo "HF Quantized KV Cache: backend=$backend, nbits=$nbits, axis_key=$axis_key, axis_value=$axis_value, num_repeats=${repeats}"
+  mkdir -p ${LOG_BASE_DIR}
+
+  local model_short=$(get_model_shortname "$MODEL")
+  local log_name="${GPUs//,/}_${model_short}_${TASK_NAME}_hf_${backend,,}_int${nbits}_axis${axis_key}.log"
+
+  nohup sh -c "
+    CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
+    HF_DATASETS_TRUST_REMOTE_CODE=1 \
+      eval_hf_kv $MODEL \
+        --task $TASK_NAME \
+        --hf_cache_backend $backend \
+        --hf_cache_nbits $nbits \
+        --hf_axis_key $axis_key \
+        --hf_axis_value $axis_value \
+        --num_repeats ${repeats} \
+        --batch_size ${BATCH_SIZE:-1} \
+        --max_new_tokens ${MAX_NEW_TOKENS:-4096} \
+        --results_dir ${RESULTS_DIR:-./eval_results} \
+        ${debug_flag}
+  " > ${LOG_BASE_DIR}/${log_name} 2>&1 &
+  wait
+}

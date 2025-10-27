@@ -51,6 +51,8 @@ cd /workspace/RoCK-KV/
 pip install -e .
 # 安装seaborn用于数据可视化
 pip install seaborn
+# 安装HQQ用于HuggingFace原生KV Cache量化
+pip install hqq
 ```
 
 
@@ -78,7 +80,7 @@ Entering the apptainer:
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
 --bind /data:/data \
---overlay build/kchanboost.img build/kchanboost.sif bash
+--overlay build/kchanboost.img:ro build/kchanboost.sif bash
 ```
 
 ### Running Evaluations:

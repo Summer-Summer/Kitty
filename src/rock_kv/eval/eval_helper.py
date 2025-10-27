@@ -197,7 +197,6 @@ def run_evaluation_repeats(
     # Task-specific configuration (same for all repeats)
     task_lower = task.lower()
     if "aime" in task_lower:
-        # AIME: apply chat template, but not fewshot_as_multiturn
         apply_chat = True
         fewshot_multiturn = False
         print(f"Task config: {task} (apply_chat_template=True, fewshot_as_multiturn=False)")

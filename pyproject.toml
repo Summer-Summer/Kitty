@@ -26,5 +26,6 @@ exclude = ["eval_scripts*", "docs*"]
 
 [project.scripts]
 eval_rock_kv = "rock_kv.cli.eval_rock_kv:main"
+eval_hf_kv = "rock_kv.cli.eval_hf_kv:main"
 gen_rock_kv = "rock_kv.cli.gen_rock_kv:main"
 
