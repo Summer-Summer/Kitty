@@ -21,6 +21,8 @@ class KChanBoostCache(Cache):
     """
     Class for KChanBoost KV caches.
     """
+    is_compileable = False
+    
     def __init__(
         self,
         config: PretrainedConfig,
