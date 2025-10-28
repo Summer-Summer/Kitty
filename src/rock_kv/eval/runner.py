@@ -68,7 +68,18 @@ def visualize_kv_cache(kv, save_dir="kv_visualizations"):
 
 ########################################### Used by cli/eval_rock_kv.py ###########################################
 @torch.no_grad()
-def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName, DEBUG=False, kv_cache: Optional[RoCKKVCache] = None, num_repeats: int = None, batch_size: int = 8):
+def eval_model_downstream(
+    model: PreTrainedModel, 
+    task: str, 
+    ModelName, 
+    fileName, 
+    DEBUG=False, 
+    kv_cache: Optional[RoCKKVCache] = None, 
+    num_repeats: int = None, 
+    batch_size: int = 8,
+    repeat_start: int = None,    # 🆕 必选参数
+    repeat_count: int = None     # 🆕 必选参数
+):
     """
     Evaluate model on downstream tasks with support for multiple repeats and checkpoint resumption.
     
@@ -76,7 +87,12 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
         num_repeats: Number of times to repeat the evaluation (for sampling-based tasks).
                      If None, will try to read from task's YAML config. If not found, defaults to 1.
         batch_size: Batch size for inference (default: 8).
+        repeat_start: Starting repeat index for this task (required).
+        repeat_count: Number of repeats to run from repeat_start (required).
     """
+    # 🆕 参数验证
+    if repeat_start is None or repeat_count is None:
+        raise ValueError("repeat_start and repeat_count are required parameters")
     from lm_eval.models.huggingface import HFLM
     from lm_eval.tasks import TaskManager
     
@@ -227,21 +243,13 @@ def eval_model_downstream(model: PreTrainedModel, task: str, ModelName, fileName
             num_repeats=num_repeats,
             completed_repeats=completed_repeats,
             all_results=all_results,
-            batch_size=batch_size
+            batch_size=batch_size,
+            repeat_start=repeat_start,    # 🆕
+            repeat_count=repeat_count     # 🆕
         )
     
-    # Generate summary statistics across all repeats
-    print(f"\n{'='*80}")
-    print("Generating summary statistics...")
-    print(f"{'='*80}\n")
-    
-    summary = generate_summary_statistics(all_results, task, model_configs, num_repeats)
-    
-    # Save summary file
-    summary_file = "{}/{}_summary.json".format(FileDir, fileName)
-    with open(summary_file, "w") as f:
-        json.dump(summary, f, indent=4)
-    print(f"[Saved] Summary statistics: {summary_file}")
+    # ❌ 删除原有的 summary 生成代码（现在由 run_evaluation_repeats 内部处理）
+    # Summary 会在所有 repeat 完成后自动生成
 
 
 ########################################### Used by cli/gen_rock_kv.py ###########################################

@@ -163,7 +163,9 @@ def run_evaluation_repeats(
     base_random_seed: int = 0,
     base_numpy_seed: int = 1234,
     base_torch_seed: int = 1234,
-    base_fewshot_seed: int = 1234
+    base_fewshot_seed: int = 1234,
+    repeat_start: int = None,      # 🆕 必选参数
+    repeat_count: int = None       # 🆕 必选参数
 ) -> List[Dict]:
     """
     Run evaluation for remaining repeats and save results.
@@ -187,10 +189,24 @@ def run_evaluation_repeats(
         base_numpy_seed: Base random seed for numpy (default: 1234)
         base_torch_seed: Base random seed for torch (default: 1234)
         base_fewshot_seed: Base random seed for fewshot sampler (default: 1234)
+        repeat_start: Starting repeat index for this task (required)
+        repeat_count: Number of repeats to run from repeat_start (required)
     
     Returns:
         Updated list of all results (same as all_results parameter)
     """
+    # 🆕 参数验证
+    if repeat_start is None or repeat_count is None:
+        raise ValueError("repeat_start and repeat_count are required parameters")
+    
+    if repeat_start < 0:
+        raise ValueError(f"repeat_start must be >= 0, got {repeat_start}")
+    
+    if repeat_count <= 0:
+        raise ValueError(f"repeat_count must be > 0, got {repeat_count}")
+    
+    if repeat_start >= num_repeats:
+        raise ValueError(f"repeat_start ({repeat_start}) must be < num_repeats ({num_repeats})")
     # Task-specific configuration (same for all repeats)
     task_lower = task.lower()
     if "aime" in task_lower:
@@ -210,8 +226,19 @@ def run_evaluation_repeats(
     if needs_unsafe_code:
         print(f"Task requires code execution, setting confirm_run_unsafe_code=True")
     
-    for repeat_idx in range(num_repeats):
+    # 🆕 计算本次任务的 repeat 范围
+    repeat_end = min(repeat_start + repeat_count, num_repeats)
+    
+    print(f"\n{'='*80}")
+    print(f"[Config] Total repeats: {num_repeats}")
+    print(f"[Config] This task will run: repeat {repeat_start} to {repeat_end-1} (inclusive)")
+    print(f"[Config] Already completed: {completed_repeats}")
+    print(f"{'='*80}\n")
+    
+    # 🔄 修改循环：从 repeat_start 开始，到 repeat_end 结束
+    for repeat_idx in range(repeat_start, repeat_end):
         if repeat_idx in completed_repeats:
+            print(f"[Checkpoint] Skipping repeat {repeat_idx} (already completed)")
             continue
         
         # Calculate unique seeds for this repeat
@@ -279,6 +306,16 @@ def run_evaluation_repeats(
         torch.cuda.empty_cache()  # Clear CUDA cache
         print(f"[Memory] Cleaned up after repeat {repeat_idx}")
     
+    # 🆕 尝试生成 summary（如果所有 repeat 都完成）
+    _try_generate_summary_if_complete(
+        file_dir=file_dir,
+        file_name=file_name,
+        num_repeats=num_repeats,
+        all_results=all_results,
+        task=task,
+        model_configs=model_configs
+    )
+    
     return all_results
 
 
@@ -341,4 +378,104 @@ def generate_summary_statistics(
             }
     
     return summary
+
+
+def _try_generate_summary_if_complete(
+    file_dir: str,
+    file_name: str,
+    num_repeats: int,
+    all_results: List[Dict],
+    task: str,
+    model_configs: Dict[str, Any]
+) -> bool:
+    """
+    检查是否所有 repeat 都完成，如果是则自动生成 summary。
+    
+    Args:
+        file_dir: Directory containing repeat result files
+        file_name: Base filename for results
+        num_repeats: Total number of repeats expected
+        all_results: List of minimal results for summary (may be incomplete)
+        task: Task name
+        model_configs: Model configuration dictionary
+    
+    Returns:
+        True if summary was generated, False otherwise
+    """
+    print(f"\n{'='*80}")
+    print("Checking if summary can be generated...")
+    print(f"{'='*80}")
+    
+    # 检查所有 repeat 文件是否存在
+    missing_repeats = []
+    existing_repeats = []
+    
+    for i in range(num_repeats):
+        repeat_file = f"{file_dir}/{file_name}_repeat_{i}.json"
+        if os.path.exists(repeat_file):
+            existing_repeats.append(i)
+        else:
+            missing_repeats.append(i)
+    
+    print(f"[Summary Check] Completed: {len(existing_repeats)}/{num_repeats}")
+    
+    if missing_repeats:
+        print(f"[Summary Check] Missing repeats: {missing_repeats}")
+        print(f"[Summary Check] Cannot generate summary yet.")
+        return False
+    
+    print(f"[Summary Check] ✅ All {num_repeats} repeats completed!")
+    
+    # 检查 summary 是否已存在且是最新的
+    summary_file = f"{file_dir}/{file_name}_summary.json"
+    summary_needs_update = True
+    
+    if os.path.exists(summary_file):
+        summary_mtime = os.path.getmtime(summary_file)
+        # 检查是否有比 summary 更新的 repeat 文件
+        has_newer_repeat = False
+        for i in range(num_repeats):
+            repeat_file = f"{file_dir}/{file_name}_repeat_{i}.json"
+            if os.path.getmtime(repeat_file) > summary_mtime:
+                has_newer_repeat = True
+                break
+        
+        if not has_newer_repeat:
+            print(f"[Summary Check] Summary already up-to-date: {summary_file}")
+            summary_needs_update = False
+    
+    if not summary_needs_update:
+        return False
+    
+    # 生成 summary
+    print(f"[Summary Generation] Generating summary statistics...")
+    
+    # 重新加载所有 repeat 结果（因为 all_results 可能只包含部分）
+    all_repeat_results = []
+    for i in range(num_repeats):
+        repeat_file = f"{file_dir}/{file_name}_repeat_{i}.json"
+        with open(repeat_file, "r") as f:
+            full_result = json.load(f)
+            minimal_result = {
+                "repeat_idx": full_result["repeat_idx"],
+                "tasks": full_result["tasks"]
+            }
+            all_repeat_results.append(minimal_result)
+    
+    # 生成 summary
+    summary = generate_summary_statistics(
+        all_results=all_repeat_results,
+        task=task,
+        model_configs=model_configs,
+        num_repeats=num_repeats
+    )
+    
+    # 保存 summary
+    with open(summary_file, "w") as f:
+        json.dump(summary, f, indent=4)
+    
+    print(f"[Summary Generation] ✅ Summary generated: {summary_file}")
+    print(f"{'='*80}\n")
+    
+    return True
 

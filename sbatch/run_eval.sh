@@ -28,6 +28,10 @@ export NUM_GPUS="${NUM_GPUS:-1}"
 export EXP_START="${EXP_START:-0}"
 export EXP_END="${EXP_END:-7}"
 
+# 🆕 Repeat 并行运行参数（必选）
+export REPEAT_START="${REPEAT_START}"
+export REPEAT_COUNT="${REPEAT_COUNT}"
+
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
 
@@ -174,6 +178,8 @@ for exp in "${EXPERIMENTS[@]}"; do
             export TASK_NAME='$TASK_NAME'
             export NUM_REPEATS=$NUM_REPEATS
             export BATCH_SIZE=$BATCH_SIZE
+            export REPEAT_START=$REPEAT_START     # 🆕
+            export REPEAT_COUNT=$REPEAT_COUNT     # 🆕
             export DEBUG='$DEBUG'
             export GPUs='${GPU_STRING}'
             export CUDA_VISIBLE_DEVICES='${GPU_STRING}'
@@ -210,6 +216,8 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --task \$TASK_NAME \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
+                      --repeat_start \${REPEAT_START} \
+                      --repeat_count \${REPEAT_COUNT} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_hf_baseline
@@ -254,6 +262,8 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --channel_selection \$channel \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
+                      --repeat_start \${REPEAT_START} \
+                      --repeat_count \${REPEAT_COUNT} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_single_exp '${LABEL}' ${SINK} ${CHANNEL} ${KBITS} ${VBITS} ${PROMOTE_BIT} ${PROMOTE_RATIO}
