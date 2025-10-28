@@ -2,14 +2,14 @@
 #SBATCH --job-name=rock_kv_eval
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:8
+##SBATCH --gres=gpu:8  # Commented: passed via command line from submit script
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=900G
 #SBATCH --time=200:00:00
 #SBATCH --partition=batch
 #SBATCH --output=log/slurm_%j.out
 #SBATCH --error=log/slurm_%j.err
-#SBATCH --exclude=research-secure-02
+#SBATCH --exclude=research-secure-20
 ##SBATCH --nodelist=research-secure-04  # Commented: let SLURM auto-assign from idle nodes
 
 # ============================================================================
@@ -21,7 +21,7 @@
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
 # These can be overridden by sbatch --export
 export MODEL="${MODEL:-Qwen/Qwen3-8B}"
-export TASK_NAME="${TASK_NAME:-minerva_math_algebra}"
+export TASK_NAME="${TASK_NAME:-humaneval_instruct}"
 export NUM_REPEATS="${NUM_REPEATS:-3}"
 export BATCH_SIZE="${BATCH_SIZE:-6}"
 export NUM_GPUS="${NUM_GPUS:-1}"
@@ -59,24 +59,41 @@ APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
 ## 14B==> 1 nodes
 ## 32B ==> 2nodes
 ## 70==>4 nodes
-# GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
+# Enhanced format: EXP_ID | MODEL | TASK | NUM_GPUS | BATCH_SIZE | NUM_REPEATS | FUNC_NAME | [func params...]
+# This allows mixing different models/tasks in the same job for full GPU utilization
+#
+# Format details:
+# - If MODEL/TASK/NUM_GPUS/BATCH_SIZE/NUM_REPEATS is "-", use global default from sbatch --export
+# - Otherwise, use the specified value for this experiment
+#
+# EXP_ID | MODEL | TASK | NUM_GPUS | BATCH_SIZE | NUM_REPEATS | FUNC | label | sink | ch_sel | kbits | vbits | pro_bit | pro_ratio
 declare -a EXPERIMENTS=(
-    # Baseline
-    # "0    |  run_hf_baseline"
-    # # KIVI K4V4
-    # "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       4       |      0.0"
-    # # KIVI K2V2
-    # "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
-    # # sinkKIVI K4V2
-    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       4       |      0.0"
-    # # sinkKIVI K2V4
-    # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       4       |      0.0"
-    # # sinkKIVI K2V2
-    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.0"
-    # sinkKIVI K2.2V2
-    "0    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.125"
-    # sinkKIVI K2.4V2
-    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.25"
+    # === JOB 1: 14B minerva (exp 0-1) ===
+    "0  |  Qwen/Qwen3-14B   |  minerva_math_algebra     |  1  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    "1  |  Qwen/Qwen3-14B   |  minerva_math_algebra     |  1  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.25"
+
+    # === JOB 2: 14B gpqa (exp 2-3) ===
+    "2  |  Qwen/Qwen3-14B   |  gpqa_diamond_cot_n_shot  |  1  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    "3  |  Qwen/Qwen3-14B   |  gpqa_diamond_cot_n_shot  |  1  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.25"
+
+    # === JOB 3: 14B gsm8k (exp 4-5) ===
+    "4  |  Qwen/Qwen3-14B   |  gsm8k_cot_llama          |  1  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    "5  |  Qwen/Qwen3-14B   |  gsm8k_cot_llama          |  1  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.25"
+
+    # === JOB 4: 32B aime24 baseline (exp 6) ===
+    "6  |  Qwen/Qwen3-32B   |  aime24                   |  2  |   4  |  4  |  run_hf_baseline |  FP16_Baseline           |  -   |  -  |  -  |  -  |  -  |  -"
+
+    # === JOB 2: 32B gsm8k + minerva (exp 7-10) ===
+    "7  |  Qwen/Qwen3-32B   |  gsm8k_cot_llama          |  2  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    "8  |  Qwen/Qwen3-32B   |  gsm8k_cot_llama          |  2  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.25"
+    "9  |  Qwen/Qwen3-32B   |  minerva_math_algebra     |  2  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    "10 |  Qwen/Qwen3-32B   |  minerva_math_algebra     |  2  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.25"
+
+    # === JOB 3: 32B gpqa (exp 11-12) ===
+    "11 |  Qwen/Qwen3-32B   |  gpqa_diamond_cot_n_shot  |  2  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    "12 |  Qwen/Qwen3-32B   |  gpqa_diamond_cot_n_shot  |  2  |  16  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.25"
+    # "13 |  Qwen/Qwen3-32B   |  gpqa_diamond_cot_n_shot  |  2  |  16 |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
+    # "13 |  Qwen/Qwen3-32B   |  gpqa_diamond_cot_n_shot  |  2  |  8  |  -  |  run_single_exp  |  Accuracy_Across_Ratios  |  32  |  2  |  2  |  2  |  4  |  0.125"
 )
 
 # ============================================================================
@@ -101,12 +118,12 @@ mkdir -p "$HOME/RoCK-KV/log"
 # 存储后台进程PID
 declare -a PIDS=()
 
-echo "Starting 8 parallel experiments in Apptainer..."
+echo "Starting parallel experiments in Apptainer..."
 echo ""
 
 # 启动GPU任务 (配置根据NUM_GPUS和EXP_START/EXP_END调整)
 # Process only experiments in range [EXP_START, EXP_END]
-# Map them to available GPUs 0-7 on this node
+# Map them to available GPUs (0 to N-1 where N is from --gres=gpu:N)
 EXP_IDX=0
 GPU_OFFSET=0
 
@@ -119,26 +136,47 @@ for exp in "${EXPERIMENTS[@]}"; do
     done
 
     EXP_ID="${TRIMMED_PARTS[0]}"
-    FUNC_NAME="${TRIMMED_PARTS[1]}"
+    EXP_MODEL="${TRIMMED_PARTS[1]}"
+    EXP_TASK="${TRIMMED_PARTS[2]}"
+    EXP_NUM_GPUS="${TRIMMED_PARTS[3]}"
+    EXP_BATCH_SIZE="${TRIMMED_PARTS[4]}"
+    EXP_NUM_REPEATS="${TRIMMED_PARTS[5]}"
+    FUNC_NAME="${TRIMMED_PARTS[6]}"
 
     # Skip experiments outside our assigned range
     if [ "$EXP_ID" -lt "$EXP_START" ] || [ "$EXP_ID" -gt "$EXP_END" ]; then
         continue
     fi
 
-    # Configure GPU string based on NUM_GPUS for tensor parallelism
+    # Use experiment-specific values or fall back to global defaults
+    CURR_MODEL="${EXP_MODEL}"
+    [ "$CURR_MODEL" = "-" ] && CURR_MODEL="$MODEL"
+
+    CURR_TASK="${EXP_TASK}"
+    [ "$CURR_TASK" = "-" ] && CURR_TASK="$TASK_NAME"
+
+    CURR_NUM_GPUS="${EXP_NUM_GPUS}"
+    [ "$CURR_NUM_GPUS" = "-" ] && CURR_NUM_GPUS="$NUM_GPUS"
+
+    CURR_BATCH_SIZE="${EXP_BATCH_SIZE}"
+    [ "$CURR_BATCH_SIZE" = "-" ] && CURR_BATCH_SIZE="$BATCH_SIZE"
+
+    CURR_NUM_REPEATS="${EXP_NUM_REPEATS}"
+    [ "$CURR_NUM_REPEATS" = "-" ] && CURR_NUM_REPEATS="$NUM_REPEATS"
+
+    # Configure GPU string based on CURR_NUM_GPUS for tensor parallelism
     # Map to local GPU indices starting from 0
-    if [ "$NUM_GPUS" -eq 1 ]; then
+    if [ "$CURR_NUM_GPUS" -eq 1 ]; then
         # 14B: 1 GPU per exp, experiments map to GPUs 0-7
         GPU_STRING="${GPU_OFFSET}"
         ((GPU_OFFSET++))
-    elif [ "$NUM_GPUS" -eq 2 ]; then
+    elif [ "$CURR_NUM_GPUS" -eq 2 ]; then
         # 32B: 2 GPUs per exp, experiments map to GPU pairs (0-1, 2-3, 4-5, 6-7)
         GPU_START=$((GPU_OFFSET))
         GPU_END=$((GPU_OFFSET + 1))
         GPU_STRING="${GPU_START},${GPU_END}"
         GPU_OFFSET=$((GPU_OFFSET + 2))
-    elif [ "$NUM_GPUS" -eq 4 ]; then
+    elif [ "$CURR_NUM_GPUS" -eq 4 ]; then
         # 70B: 4 GPUs per exp, experiments map to GPU quads (0-3, 4-7)
         GPU_START=$((GPU_OFFSET))
         GPU_END=$((GPU_OFFSET + 3))
@@ -146,21 +184,24 @@ for exp in "${EXPERIMENTS[@]}"; do
         GPU_OFFSET=$((GPU_OFFSET + 4))
     fi
 
-    echo "Experiment ${EXP_ID} on GPU ${GPU_STRING}: ${FUNC_NAME} ${TRIMMED_PARTS[@]:2}"
-    
+    echo "Experiment ${EXP_ID} on GPU ${GPU_STRING}: ${CURR_MODEL} / ${CURR_TASK} / ${FUNC_NAME}"
+    echo "  -> Setting SINGULARITYENV_CUDA_VISIBLE_DEVICES=${GPU_STRING}"
+
     # 提取run_single_exp的参数（如果有）
     if [ "$FUNC_NAME" = "run_single_exp" ]; then
-        LABEL="${TRIMMED_PARTS[2]}"
-        SINK="${TRIMMED_PARTS[3]}"
-        CHANNEL="${TRIMMED_PARTS[4]}"
-        KBITS="${TRIMMED_PARTS[5]}"
-        VBITS="${TRIMMED_PARTS[6]}"
-        PROMOTE_BIT="${TRIMMED_PARTS[7]}"
-        PROMOTE_RATIO="${TRIMMED_PARTS[8]}"
+        LABEL="${TRIMMED_PARTS[7]}"
+        SINK="${TRIMMED_PARTS[8]}"
+        CHANNEL="${TRIMMED_PARTS[9]}"
+        KBITS="${TRIMMED_PARTS[10]}"
+        VBITS="${TRIMMED_PARTS[11]}"
+        PROMOTE_BIT="${TRIMMED_PARTS[12]}"
+        PROMOTE_RATIO="${TRIMMED_PARTS[13]}"
     fi
     
     # 在Apptainer中运行（后台）
     # 进入eval_scripts目录，source utils.sh，然后调用相应函数
+    # IMPORTANT: Set SINGULARITYENV_CUDA_VISIBLE_DEVICES to control GPU visibility in container
+    SINGULARITYENV_CUDA_VISIBLE_DEVICES=${GPU_STRING} \
     apptainer exec --nv \
         --bind $HOME:/workspace \
         --bind /data:/data \
@@ -168,12 +209,12 @@ for exp in "${EXPERIMENTS[@]}"; do
         "$APPTAINER_SIF" \
         bash -c "
             cd /workspace/RoCK-KV/eval_scripts
-            
-            # 导出环境变量
-            export MODEL='$MODEL'
-            export TASK_NAME='$TASK_NAME'
-            export NUM_REPEATS=$NUM_REPEATS
-            export BATCH_SIZE=$BATCH_SIZE
+
+            # 导出环境变量 (使用per-experiment配置)
+            export MODEL='$CURR_MODEL'
+            export TASK_NAME='$CURR_TASK'
+            export NUM_REPEATS=$CURR_NUM_REPEATS
+            export BATCH_SIZE=$CURR_BATCH_SIZE
             export DEBUG='$DEBUG'
             export GPUs='${GPU_STRING}'
             export CUDA_VISIBLE_DEVICES='${GPU_STRING}'
@@ -182,7 +223,11 @@ for exp in "${EXPERIMENTS[@]}"; do
             export HF_TOKEN='$HF_TOKEN'
             export TOKENIZERS_PARALLELISM=false
             export HF_DATASETS_TRUST_REMOTE_CODE=1
-            
+
+            # DEBUG: Print GPU assignment
+            echo \"[DEBUG] EXP_ID=${EXP_ID}: GPUs=\$GPUs, CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"
+            echo \"[DEBUG] Available CUDA devices: \$(python3 -c 'import torch; print(torch.cuda.device_count())')\"
+
             # Source utils.sh
             source ./utils.sh
             
