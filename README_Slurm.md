@@ -25,8 +25,7 @@ Entering the apptainer:
 ```
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
---bind /data:/data \
---overlay build/kchanboost.img:ro build/kchanboost.sif bash
+--overlay build/kchanboost.img build/kchanboost.sif bash
 ```
 
 Installing the package:
@@ -79,8 +78,7 @@ Entering the apptainer:
 ```
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
---bind /data:/data \
---overlay build/kchanboost.img:ro build/kchanboost.sif bash
+--overlay build/kchanboost.img build/kchanboost.sif bash
 ```
 
 ### Running Evaluations:
@@ -99,4 +97,11 @@ cd eval_scripts
 
 # Multi-GPU evaluation
 ./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "0,1" "10" "1"
+```
+cd /workspace/RoCK-KV/tests/
+./gen_test.sh
+```
+
+```
+srun --nodelist=research-external-03 --pty bash -i
 ```

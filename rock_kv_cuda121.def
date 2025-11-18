@@ -21,13 +21,30 @@ From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
     
     # 处理flash-attn
     pip uninstall -y flash-attn || true
-    pip install flash-attn==2.7.4.post1 --no-build-isolation
+    pip install --no-cache-dir flash-attn==2.7.4.post1 --no-build-isolation
 
-    # 创建必要的目录
+    # 安装nsys profile
+    # 1. 定义 URL 和保存路径
+    #export DEB_URL="https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_5/NsightSystems-linux-cli-public-2025.5.1.121-3638078.deb"
+    #export DEB_PATH="/tmp/nsight-systems.deb"
+    # 2. 下载 .deb 文件
+    #echo "Downloading Nsight Systems CLI..."
+    #wget -O "${DEB_PATH}" "${DEB_URL}"
+    # 3. 使用 apt 安装本地 .deb 文件
+    #    (使用 'apt install' 会自动处理依赖项)
+    #echo "Installing Nsight Systems CLI..."
+    #apt-get update
+    #apt-get install -y "${DEB_PATH}"
+    # 4. 清理
+    #rm "${DEB_PATH}"
+
+    # used for huggingface quantized cache
+    pip install hqq
+    pip install --no-deps optimum-quanto
 
 %environment
     # 设置环境变量
-    export HF_HOME=/data/shared/huggingface
+    export HF_HOME="/workspace/HF_HOME"
     export TOKENIZERS_PARALLELISM=false
     export HF_DATASETS_TRUST_REMOTE_CODE=1
     export PATH="/root/.local/bin:$PATH"
