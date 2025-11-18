@@ -313,7 +313,7 @@ def main() -> None:
         benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "dynamic", None)
     elif args.cache_implementation == 3:
         print("Using INT4 quantized KV cache implementation with HQQ backend of Huggingface transformers.")
-        cache_config = {"backend": "hqq"}
+        cache_config = {"backend": "quanto"}
         benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "quantized", cache_config)
     else:
         assert args.cache_implementation == 0
