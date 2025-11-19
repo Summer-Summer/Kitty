@@ -1,3 +1,7 @@
+# MIT License
+# Copyright (c) 2025 Haojun Xia
+# See the LICENSE file in the project root for more information.
+
 # src/kchanboost/kvcache/utils_kv_per_layer.py
 
 import math

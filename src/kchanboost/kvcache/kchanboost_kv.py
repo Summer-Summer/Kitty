@@ -1,3 +1,7 @@
+# MIT License
+# Copyright (c) 2025 Haojun Xia
+# See the LICENSE file in the project root for more information.
+
 # src/kchanboost/kvcache/kchanboost_kv.py
 
 # Inspired by https://github.com/huggingface/transformers/blob/main/src/transformers/cache_utils.py.

@@ -1,3 +1,7 @@
+# MIT License
+# Copyright (c) 2025 Haojun Xia
+# See the LICENSE file in the project root for more information.
+
 # src/kchanboost/kvcache/kernels/kchanboost_quant_pack.py
 
 import torch
