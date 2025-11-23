@@ -115,7 +115,7 @@ import argparse
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',                  type=str, default="Qwen/Qwen3-8B",  help='Qwen3 model to load')
-    parser.add_argument("--cache_implementation",   type=int, default=0,                help="Choosing KV cache implementation: (0) for Kitty; (1) for FP16 static cache; (2) for FP16 dynamic cache; (3) for INT4 quantized cache with HQQ backend.")
+    parser.add_argument("--cache_implementation",   type=int, default=0,                help="Choosing KV cache implementation: (0) for Kitty; (1) for FP16 static cache; (2) for FP16 dynamic cache; (3) for INT4 quantized cache with quanto backend.")
     parser.add_argument("--max_seq_len",            type=int, default=2048,             help="Maximum sequence length for KV cache.")
     parser.add_argument("--batch_size",             type=int, default=32,               help="Batch size for generation, repeat the prompt for each batch")
     parser.add_argument("--prompt_choice",          type=int, default=0,                help="Choice of prompt to use")

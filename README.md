@@ -1,9 +1,11 @@
-# RoCK-KV
+# Kitty
+Kitty is a plug-and-play KV-cache system for HuggingFace Transformers, enabling accurate 2-bit KV-cache quantization through channel-wise precision boost.  
+This repository is the official artifact of our conference submission (under review).
 
 ### Get the code:
 ```
-git clone -b jisen_dev https://github.com/Summer-Summer/RoCK-KV.git
-cd RoCK-KV
+git clone https://github.com/Summer-Summer/Kitty.git
+cd Kitty
 git submodule update --init --recursive
 ```
 
@@ -11,13 +13,13 @@ git submodule update --init --recursive
 ```
 mkdir build
 cd build
-sudo apptainer build kchanboost.sif ../rock_kv_cuda121.def 
+sudo apptainer build kitty.sif ../kitty_cuda121.def 
 ```
 
 ### Building .img (writable overlay image):
 ```
 cd build
-apptainer overlay create --size 8192 kchanboost.img
+apptainer overlay create --size 8192 kitty.img
 ```
 
 ### Installing software into the overlay image:
@@ -25,32 +27,32 @@ Entering the apptainer:
 ```
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
---overlay build/kchanboost.img build/kchanboost.sif bash
+--overlay build/kitty.img build/kitty.sif bash
 ```
 
 Installing the package:
 
-**注意事项：** 在安装之前，有可能需要手动切换到以下分支：
+**Important:** Before installation, we need to manually switch the submodules to the following branch：
 - Transformers: `hf-4.53.2`
-- lm_eval: `rock-kv`
+- lm_eval: `kitty`
 
 ```
-# 安装自定义transformers
-cd /workspace/RoCK-KV/third_party/transformers
-git checkout hf-4.53.2  # 切换到指定分支
+# Install transformers
+cd /workspace/Kitty/third_party/transformers
+git checkout hf-4.53.2
 pip install -e .
-# 安装自定义lm-evaluation-harness
-cd /workspace/RoCK-KV/third_party/lm-evaluation-harness
-git checkout rock-kv  # 切换到指定分支
+# Install lm-evaluation-harness
+cd /workspace/Kitty/third_party/lm-evaluation-harness
+git checkout kitty
 pip install -e .
-# 安装lm-eval with math support
+# Install lm-eval with math support
 pip install "lm-eval[math]"
-# 安装KChanBoost
-cd /workspace/RoCK-KV/
+# Install Kitty
+cd /workspace/Kitty/
 pip install -e .
-# 安装seaborn用于数据可视化
+# Install seaborn for visualization
 pip install seaborn
-# 安装HQQ用于HuggingFace原生KV Cache量化
+# Install HQQ for HuggingFace's KV Cache quantization
 pip install hqq
 ```
 
@@ -60,9 +62,9 @@ pip install hqq
 exit
 ```
 
-### Testing:
-Just testing, not for formal experiments.
+### Run experiments
 
+#### Before Runing the experiments:
 Entering the computing node (interative mode):
 ```
 srun --ntasks=1 \
@@ -78,30 +80,20 @@ Entering the apptainer:
 ```
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
---overlay build/kchanboost.img build/kchanboost.sif bash
+--overlay build/kitty.img build/kitty.sif bash
 ```
 
-### Running Evaluations:
-```bash
-cd eval_scripts
+#### Runing latency banchmarking:
+See more details in [latency_benchmarking](Kitty/latency_benchmarking/).
 
-# View usage and parameters
-./accuracy_eval5.sh
+#### Runing accuracy simulation:
+See more details in [accuracy_simulation](Kitty/accuracy_simulation/).
 
-# Examples:
-# Run with 10 repeats, batch_size=2
-./accuracy_eval5.sh "Qwen/Qwen3-8B" "aime24" "0" "10" "2"
 
-# Run with defaults (1 repeat, batch_size=1)
-./accuracy_eval5.sh "Qwen/Qwen3-8B" "aime24" "0"
+## Citation
 
-# Multi-GPU evaluation
-./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "0,1" "10" "1"
-```
-cd /workspace/RoCK-KV/tests/
-./gen_test.sh
-```
+If you find Kitty useful or relevant to your research, please kindly cite [our paper (to be added)]():
 
 ```
-srun --nodelist=research-external-03 --pty bash -i
+
 ```
