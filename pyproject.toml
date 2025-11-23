@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rock-kv"
+name = "kitty"
 version = "1.0.0"
 description = "An accurate 2/4 bit KV Cache quantization method for LLMs."
 authors = [
@@ -20,12 +20,10 @@ classifiers = [
 "" = "src"
 
 [tool.setuptools.packages.find]
-include = ["rock_kv*", "kchanboost*"]
-exclude = ["eval_scripts*", "docs*"]
+include = ["kitty_sim*", "kitty*"]
 
 
 [project.scripts]
-eval_rock_kv = "rock_kv.cli.eval_rock_kv:main"
-eval_hf_kv = "rock_kv.cli.eval_hf_kv:main"
-gen_rock_kv = "rock_kv.cli.gen_rock_kv:main"
+eval_kitty = "kitty_sim.cli.eval_kitty:main"
+eval_hf_kv = "kitty_sim.cli.eval_hf_kv:main"
 

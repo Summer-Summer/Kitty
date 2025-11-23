@@ -27,56 +27,8 @@ get_model_shortname() {
   echo "$model" | sed 's|.*/||' | sed 's/-/_/g'
 }
 
-# 通用函数
-run_multiple_exp () {
-  local label=$1
-  local sink=$2
-  local channel=$3
-  local kbits=$4
-  local vbits=$5
-  local promote_bit=$6
-  mkdir -p eval_logs
-  local model_short=$(get_model_shortname "$MODEL")
-  
-  # Use NUM_REPEATS from environment, default to 1
-  local repeats=${NUM_REPEATS:-1}
-  local debug_flag=""
-  if [ "${DEBUG}" = "1" ] || [ "${DEBUG}" = "true" ]; then
-    repeats=1
-    debug_flag="--debug"
-  fi
 
-  for PROMOTE_RATIO in "${PROMOTE_RATIOS[@]}"; do
-    echo "Launching $TASK_NAME on GPUs $GPUs"
-    echo "label=$label, sink=$sink, channel_sel=$channel, k=$kbits, v=$vbits, promote_bit=$promote_bit, promote_ratio=$PROMOTE_RATIO, num_repeats=${repeats}"
-    
-    local promote_ratio_str=$(echo "$PROMOTE_RATIO" | sed 's/\./_/g')
-    local log_name="${GPUs//,/}_${model_short}_${TASK_NAME}_s${sink}_k${kbits}v${vbits}_pro${promote_ratio_str}.log"
-    
-    mkdir -p ${LOG_BASE_DIR}
-  nohup sh -c "
-    CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
-    HF_DATASETS_TRUST_REMOTE_CODE=1 \
-      eval_rock_kv $MODEL \
-        --task $TASK_NAME \
-        --eval_rock_kv \
-        --sink_length $sink \
-        --buffer_length ${BUFFER_LENGTH} \
-        --group_size ${GROUP_SIZE}  \
-        --kbits ${kbits} \
-        --vbits ${vbits} \
-        --promote_ratio $PROMOTE_RATIO \
-        --promote_bit $promote_bit \
-        --channel_selection $channel \
-        --num_repeats ${repeats} \
-        --batch_size ${BATCH_SIZE:-1} \
-        ${debug_flag}
-  " > ${LOG_BASE_DIR}/${log_name} 2>&1 &
-    wait
-  done
-}
-
-# 通用函数
+# run accuracy evaluation with simulated kitty.
 run_single_exp () {
   local label=$1
   local sink=$2
@@ -105,9 +57,9 @@ run_single_exp () {
   nohup sh -c "
     CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
     HF_DATASETS_TRUST_REMOTE_CODE=1 \
-      eval_rock_kv $MODEL \
+      eval_kitty $MODEL \
         --task $TASK_NAME \
-        --eval_rock_kv \
+        --eval_kitty \
         --sink_length $sink \
         --buffer_length ${BUFFER_LENGTH} \
         --group_size ${GROUP_SIZE} \
@@ -124,7 +76,7 @@ run_single_exp () {
 }
 
 
-# 通用函数
+# run accuracy evaluation with standard huggingface.
 run_hf_baseline () {
   # Use NUM_REPEATS from environment, default to 1
   local repeats=${NUM_REPEATS:-1}
@@ -147,7 +99,7 @@ run_hf_baseline () {
   nohup sh -c "
     CUDA_VISIBLE_DEVICES=$GPUs TOKENIZERS_PARALLELISM=false \
     HF_DATASETS_TRUST_REMOTE_CODE=1 \
-      eval_rock_kv $MODEL \
+      eval_kitty $MODEL \
         --task $TASK_NAME \
         --num_repeats ${repeats} \
         --batch_size ${BATCH_SIZE:-1} \
@@ -157,7 +109,7 @@ run_hf_baseline () {
 }
 
 
-# 通用函数：HuggingFace Quantized KV Cache
+# run accuracy evaluation with HuggingFace's Quantized KV Cache
 run_hf_quantized_exp () {
   local backend=$1        # "HQQ" or "quanto"
   local nbits=$2          # 2, 4, 8

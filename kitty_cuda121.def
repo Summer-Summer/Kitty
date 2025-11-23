@@ -1,0 +1,64 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
+
+%files
+
+%post
+    # Update
+    apt-get update && apt-get install -y \
+        git \
+        wget \
+        curl \
+        build-essential \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Install Python dependencies
+    pip install --upgrade pip
+
+    # Install matplotlib & seaborn
+    pip install matplotlib
+    pip install seaborn
+    
+    # Install flash-attn
+    pip uninstall -y flash-attn || true
+    pip install --no-cache-dir flash-attn==2.7.4.post1 --no-build-isolation
+
+    # Install nsys profile
+    # 1. Define URL and PATH
+    #export DEB_URL="https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_5/NsightSystems-linux-cli-public-2025.5.1.121-3638078.deb"
+    #export DEB_PATH="/tmp/nsight-systems.deb"
+    # 2. Download .deb
+    #echo "Downloading Nsight Systems CLI..."
+    #wget -O "${DEB_PATH}" "${DEB_URL}"
+    # 3. Install local .deb
+    #echo "Installing Nsight Systems CLI..."
+    #apt-get update
+    #apt-get install -y "${DEB_PATH}"
+    # 4. Clean
+    #rm "${DEB_PATH}"
+
+    # used for huggingface quantized cache
+    pip install hqq
+    pip install --no-deps optimum-quanto
+
+%environment
+    # Set environment
+    export HF_HOME="/workspace/HF_HOME"
+    export TOKENIZERS_PARALLELISM=false
+    export HF_DATASETS_TRUST_REMOTE_CODE=1
+    export PATH="/root/.local/bin:$PATH"
+
+%runscript
+    exec "$@"
+
+%help
+    This container includes:
+    - PyTorch 2.4.1 with CUDA 12.1 and cuDNN 9
+    - matplotlib, seaborn for visualization
+    - flash-attn 2.7.4.post1
+    - Updated triton
+    - Custom transformers (hf-4.53.2 branch)
+    - Custom lm-evaluation-harness
+    
+    Usage:
+    singularity exec --nv --bind /path/to/your/project:/workspace container.sif <command>

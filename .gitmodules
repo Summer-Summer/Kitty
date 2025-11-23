@@ -5,4 +5,4 @@
 [submodule "third_party/lm-evaluation-harness"]
 	path = third_party/lm-evaluation-harness
 	url = https://github.com/Summer-Summer/lm-evaluation-harness.git
-	branch = rock-kv
+	branch = kitty
