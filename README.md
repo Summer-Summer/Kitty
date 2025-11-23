@@ -84,10 +84,10 @@ apptainer exec --nv \
 ```
 
 #### Runing latency banchmarking:
-See more details in [latency_benchmarking](Kitty/latency_benchmarking/).
+See more details in [latency_benchmarking](latency_benchmarking/).
 
 #### Runing accuracy simulation:
-See more details in [accuracy_simulation](Kitty/accuracy_simulation/).
+See more details in [accuracy_simulation](accuracy_simulation/).
 
 
 ## Citation
