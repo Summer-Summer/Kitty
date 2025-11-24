@@ -51,8 +51,8 @@ cd /workspace/RoCK-KV/
 pip install -e .
 # 安装seaborn用于数据可视化
 pip install seaborn
-# 安装HQQ用于HuggingFace原生KV Cache量化
-pip install hqq
+# 安装quanto用于HuggingFace原生KV Cache量化
+pip install optimum-quanto --no-deps
 ```
 
 
@@ -67,7 +67,7 @@ Just testing, not for formal experiments.
 Entering the computing node (interative mode):
 ```
 srun --ntasks=1 \
-		 --gres=gpu:8 \
+		 --gres=gpu:1 \
 		 --cpus-per-task=64 \
 		 --mem=450000 \
 		 --partition=batch \

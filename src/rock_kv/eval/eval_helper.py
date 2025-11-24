@@ -107,7 +107,9 @@ def build_eval_output(
     
     # Dealing with corner cases, where model configs can not be serialized.
     output["eval_configs"]["model_dtype"] = str(model.dtype)
-    if output["eval_configs"]["gen_kwargs"]["past_key_values"] is not None:
+    
+    # Handle past_key_values for RoCK-KV (only if it exists)
+    if "past_key_values" in output["eval_configs"]["gen_kwargs"] and output["eval_configs"]["gen_kwargs"]["past_key_values"] is not None:
         output["eval_configs"]["gen_kwargs"]["past_key_values"] = output["eval_configs"]["gen_kwargs"]["past_key_values"].cache_implementation
     
     if "samples" in results:
@@ -122,7 +124,8 @@ def build_eval_output(
             if task_samples and "arguments_from_samples" not in output["eval_configs"]:
                 first_sample = task_samples[0]
                 arguments_from_samples = copy.deepcopy(first_sample["arguments"][0][1])
-                if arguments_from_samples["past_key_values"] is not None:
+                # Handle past_key_values for RoCK-KV (only if it exists)
+                if "past_key_values" in arguments_from_samples and arguments_from_samples["past_key_values"] is not None:
                     arguments_from_samples["past_key_values"] = arguments_from_samples["past_key_values"].cache_implementation
                 output["eval_configs"]["arguments_from_samples"] = arguments_from_samples
             

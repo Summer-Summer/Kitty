@@ -2,14 +2,14 @@
 #SBATCH --job-name=rock_kv_eval
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=500G
 #SBATCH --time=200:00:00
 #SBATCH --partition=batch
 #SBATCH --output=log/slurm_%j.out
 #SBATCH --error=log/slurm_%j.err
-#SBATCH --nodelist=research-external-14  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
+#SBATCH --nodelist=research-external-04  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
 
 # ============================================================================
 # 配置区域 - 在这里修改参数
@@ -18,10 +18,16 @@
 # 模型和任务配置
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
+
 export MODEL="Qwen/Qwen3-8B"
 export TASK_NAME="aime24"
 export NUM_REPEATS=10
 export BATCH_SIZE=6
+export MAX_NEW_TOKENS=32768  # 最大生成token数 (aime24/25建议32768, 其他4096)
+
+# 输出路径配置
+export RESULTS_DIR="./eval_results_aime24_rerun2"  # 评估结果保存目录
+export LOGS_DIR="eval_logs_aime24_rerun2"          # 日志保存目录
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
@@ -37,45 +43,33 @@ APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
 # ============================================================================
 # 实验配置 - 8个GPU上运行的8个不同配置
 # ============================================================================
-# 参考 accuracy_eval5.sh 中的调用方式:
-#   run_hf_baseline
-#   run_single_exp  "label"  sink  channel_sel  kbits  vbits  promote_bit  promote_ratio
-#
-# channel_selection: (0) Random  (1) Variance  (2) Magnitude  (3) RoPE-aware
-# 当前所有实验统一使用 channel_sel=2 (Magnitude-based)
-#
-# 注意：
-# 1. GPU可以是单个(0)或多个(0,1)，多GPU时会使用tensor parallel
-# 2. 如果只运行部分GPU，注释掉不需要的行即可
-# 3. 可以在同一节点多次提交，只要GPU_ID不重复
-# ============================================================================
 
 # GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
 declare -a EXPERIMENTS=(
     # Baseline
-    "0    |  run_hf_baseline"
+    "7    |  run_hf_baseline"
     # KIVI K4V4
-    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       4       |      0.0"
-    # KIVI K2V2
-    "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
-    # sinkKIVI K4V2
-    "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       4       |      0.0"
-    # sinkKIVI K2V4
-    "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       4       |      0.0"
-    # sinkKIVI K2V2
-    "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.0"
-    # sinkKIVI K2.2V2
-    "6    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.1"
-    # sinkKIVI K2.4V2
-    "7    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.2"
+    # "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    4    |    4    |       4       |      0.0"
+    # # KIVI K2V2
+    # "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   0    |      2        |    2    |    2    |       4       |      0.0"
+    # # sinkKIVI K4V2
+    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    4    |    2    |       4       |      0.0"
+    # # sinkKIVI K2V4
+    # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    4    |       4       |      0.0"
+    # # sinkKIVI K2V2
+    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.0"
+    # # sinkKIVI K2.2V2
+    # "6    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.125"
+    # # sinkKIVI K2.4V2
+    # "7    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.25"
 )
 
 # ============================================================================
-# 主程序 - 通常不需要修改
+# 主程序
 # ============================================================================
 
 echo "=========================================="
-echo "SLURM Job Information"
+echo "RoCK-KV Evaluation (SLURM Mode)"
 echo "=========================================="
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_NODELIST"
@@ -84,6 +78,9 @@ echo "Model: $MODEL"
 echo "Task: $TASK_NAME"
 echo "Num Repeats: $NUM_REPEATS"
 echo "Batch Size: $BATCH_SIZE"
+echo "Max New Tokens: $MAX_NEW_TOKENS"
+echo "Results Dir: $RESULTS_DIR"
+echo "Logs Dir: $LOGS_DIR"
 echo "=========================================="
 echo ""
 
@@ -121,7 +118,6 @@ for exp in "${EXPERIMENTS[@]}"; do
     fi
     
     # 在Apptainer中运行（后台）
-    # 进入eval_scripts目录，source utils.sh，然后调用相应函数
     apptainer exec --nv \
         --bind $HOME:/workspace \
         --bind /data:/data \
@@ -135,6 +131,8 @@ for exp in "${EXPERIMENTS[@]}"; do
             export TASK_NAME='$TASK_NAME'
             export NUM_REPEATS=$NUM_REPEATS
             export BATCH_SIZE=$BATCH_SIZE
+            export MAX_NEW_TOKENS=$MAX_NEW_TOKENS
+            export RESULTS_DIR='$RESULTS_DIR'
             export DEBUG='$DEBUG'
             export GPUs='${GPU_ID}'
             export CUDA_VISIBLE_DEVICES='${GPU_ID}'
@@ -146,9 +144,19 @@ for exp in "${EXPERIMENTS[@]}"; do
             # Source utils.sh
             source ./utils.sh
             
-            # 调用函数（移除wait以真正后台运行）
+            # 设置带模型和任务的日志目录
+            NODE_NAME_TMP=\$(hostname | grep -oP 'external-\K\d+' | head -1)
+            if [ -n \"\$NODE_NAME_TMP\" ]; then
+                NODE_NAME_TMP=\"node_\${NODE_NAME_TMP}\"
+            else
+                NODE_NAME_TMP=\$(hostname | cut -d. -f1)
+            fi
+            MODEL_SHORT=\$(get_model_shortname \"\$MODEL\")
+            export LOG_BASE_DIR=\"/workspace/RoCK-KV/eval_scripts/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
+            mkdir -p \${LOG_BASE_DIR}
+            
+            # 调用函数
             if [ '${FUNC_NAME}' = 'run_hf_baseline' ]; then
-                # 修改函数，移除wait
                 run_hf_baseline() {
                   local repeats=\${NUM_REPEATS:-1}
                   local debug_flag=''
@@ -159,7 +167,6 @@ for exp in "${EXPERIMENTS[@]}"; do
                   
                   echo \"Launching \$TASK_NAME on GPUs \$GPUs\"
                   echo \"Huggingface baseline, k=16, v=16, num_repeats=\${repeats}\"
-                  mkdir -p \${LOG_BASE_DIR}
 
                   local model_short=\$(get_model_shortname \"\$MODEL\")
                   local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_fp16.log\"
@@ -170,11 +177,12 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --task \$TASK_NAME \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
+                      --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
+                      --results_dir \${RESULTS_DIR:-./eval_results} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_hf_baseline
             else
-                # run_single_exp
                 run_single_exp() {
                   local label=\$1
                   local sink=\$2
@@ -193,11 +201,10 @@ for exp in "${EXPERIMENTS[@]}"; do
                   
                   echo \"Launching \$TASK_NAME on GPUs \$GPUs\"
                   echo \"label=\$label, sink=\$sink, channel_sel=\$channel, k=\$kbits, v=\$vbits, promote_bit=\$promote_bit, promote_ratio=\$promote_ratio, num_repeats=\${repeats}\"
-                  mkdir -p \${LOG_BASE_DIR}
 
                   local model_short=\$(get_model_shortname \"\$MODEL\")
                   local promote_ratio_str=\$(echo \"\$promote_ratio\" | sed 's/\\./_/g')
-                  local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_s\${sink}_k\${kbits}v\${vbits}_pro\${promote_ratio_str}.log\"
+                  local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_s\${sink}_sel\${channel}_k\${kbits}v\${vbits}_pro\${promote_ratio_str}.log\"
 
                   CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
                   HF_DATASETS_TRUST_REMOTE_CODE=1 \
@@ -214,6 +221,8 @@ for exp in "${EXPERIMENTS[@]}"; do
                       --channel_selection \$channel \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
+                      --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
+                      --results_dir \${RESULTS_DIR:-./eval_results} \
                       \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
                 run_single_exp '${LABEL}' ${SINK} ${CHANNEL} ${KBITS} ${VBITS} ${PROMOTE_BIT} ${PROMOTE_RATIO}
@@ -239,7 +248,7 @@ echo "End: $(date)"
 echo "=========================================="
 echo ""
 
-# 获取节点名称
+# 获取节点名称和模型简称
 NODE_NAME=$(hostname | grep -oP 'external-\K\d+' | head -1)
 if [ -n "$NODE_NAME" ]; then
     NODE_NAME="node_${NODE_NAME}"
@@ -247,7 +256,10 @@ else
     NODE_NAME=$(hostname | cut -d. -f1)
 fi
 
-LOG_DIR="$HOME/RoCK-KV/eval_scripts/eval_logs/${NODE_NAME}"
+# 获取模型简称（用于路径）
+MODEL_SHORT=$(echo "$MODEL" | sed 's|.*/||' | sed 's/-/_/g')
+
+LOG_DIR="$HOME/RoCK-KV/eval_scripts/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}"
 
 # 检查结果
 echo "Results Summary:"
@@ -273,6 +285,9 @@ for exp in "${EXPERIMENTS[@]}"; do
 done
 
 echo ""
-echo "Results: eval_scripts/eval_results/${MODEL##*/}/${TASK_NAME}/"
+echo "Results: eval_scripts/${RESULTS_DIR}/${MODEL##*/}/${TASK_NAME}/"
 echo "Logs: ${LOG_DIR}/"
+echo ""
+echo "Log structure: ${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}/"
+
 

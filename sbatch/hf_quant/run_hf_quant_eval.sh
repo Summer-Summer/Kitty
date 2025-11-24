@@ -2,14 +2,14 @@
 #SBATCH --job-name=hf_quant_eval
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=64
-#SBATCH --mem=200G
-#SBATCH --time=10:00:00
+#SBATCH --mem=500G
+#SBATCH --time=200:00:00
 #SBATCH --partition=batch
 #SBATCH --output=log/slurm_%j.out
 #SBATCH --error=log/slurm_%j.err
-# SBATCH --nodelist=research-external-04  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
+#SBATCH --nodelist=research-external-03  # 检查节点是否可用，不可用会一直在queue里等待，不会自动切换节点
 
 # ============================================================================
 # HuggingFace Quantized KV Cache 评估脚本 - Multi-Task 版本
@@ -38,15 +38,15 @@ export RESULTS_DIR="./eval_results_hf_quant"  # 评估结果保存目录
 export LOGS_DIR="eval_logs_hf_quant"          # 日志保存目录
 
 # DEBUG模式 (设置为1或true则只运行1个repeat且只运行前8题，用于快速测试)
-export DEBUG=1
+export DEBUG=0
 
 # 环境变量
-export TORCH_CUDA_ARCH_LIST="9.0"
+export TORCH_CUDA_ARCH_LIST="8.0"  # A100 GPU (Ampere架构)
 export HF_HOME=/workspace/.cache/huggingface
 
 # Apptainer路径
 APPTAINER_SIF="$HOME/RoCK-KV/build/kchanboost.sif"
-APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost2.img"  # 使用 kchanboost2.img (已安装 HQQ)
+APPTAINER_IMG="$HOME/RoCK-KV/build/hf_kv.img"  # 使用 hf_kv.img (已安装 optimum-quanto)
 
 # ============================================================================
 # 实验配置 - 支持不同GPU运行不同Task
@@ -68,20 +68,20 @@ APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost2.img"  # 使用 kchanboost2.img (�
 #   - "HQQ": 使用 HQQ backend (推荐 axis_key=1, axis_value=1)
 #   - "quanto": 使用 Quanto backend (需要安装 optimum-quanto, 推荐 axis_key=0, axis_value=0)
 #
-# nbits 选项: 2, 4, 8
+# nbits 选项: 2, 4
 #
 declare -a EXPERIMENTS=(
-    # GPU 1: gsm8k_cot_llama - HQQ INT4 (3 repeats, batch_size=32)
-    # "1    |  run_hf_quantized_exp  |  gsm8k_cot_llama  |  HQQ  |  4  |  1  |  1  |  3  |  32  |  4096"
+    # GPU 1: gsm8k_cot_llama - Quanto INT4 (3 repeats, batch_size=32, axis=0)
+    "0    |  run_hf_quantized_exp  |  gsm8k_cot_llama  |  quanto  |  4  |  0  |  0  |  3  |  32  |  4096"
     
-    # # GPU 2: gpqa_diamond_cot_n_shot - HQQ INT4 (5 repeats, batch_size=32)
-    # "2    |  run_hf_quantized_exp  |  gpqa_diamond_cot_n_shot  |  HQQ  |  4  |  1  |  1  |  5  |  32  |  4096"
+    # GPU 2: gpqa_diamond_cot_n_shot - Quanto INT4 (5 repeats, batch_size=32, axis=0)
+    "1    |  run_hf_quantized_exp  |  gpqa_diamond_cot_n_shot  |  quanto  |  4  |  0  |  0  |  5  |  32  |  4096"
     
-    # GPU 3: humaneval_instruct - HQQ INT4 (10 repeats, batch_size=32)
-    "6    |  run_hf_quantized_exp  |  humaneval_instruct  |  HQQ  |  4  |  1  |  1  |  10  |  32  |  4096"
+    # GPU 3: humaneval_instruct - Quanto INT4 (10 repeats, batch_size=32, axis=0)
+    "2    |  run_hf_quantized_exp  |  humaneval_instruct  |  quanto  |  4  |  0  |  0  |  10  |  32  |  4096"
     
-    # GPU 4: minerva_math_algebra - HQQ INT4 (3 repeats, batch_size=32)
-    # "4    |  run_hf_quantized_exp  |  minerva_math_algebra  |  HQQ  |  4  |  1  |  1  |  3  |  32  |  4096"
+    # GPU 4: minerva_math_algebra - Quanto INT4 (3 repeats, batch_size=32, axis=0)
+    "3    |  run_hf_quantized_exp  |  minerva_math_algebra  |  quanto  |  4  |  0  |  0  |  3  |  32  |  4096"
 )
 
 # ============================================================================
@@ -147,11 +147,15 @@ for exp in "${EXPERIMENTS[@]}"; do
         echo "  - Params: repeats=$NUM_REPEATS, batch_size=$BATCH_SIZE, max_tokens=$MAX_NEW_TOKENS"
     fi
     
+    # 根据 GPU_ID 选择对应的 image 副本（每个 GPU 有独立的可写 image）
+    GPU_IMG="$HOME/RoCK-KV/build/hf_kv_${GPU_ID}.img"
+    echo "  - Using image: hf_kv_${GPU_ID}.img"
+    
     # 在Apptainer中运行（后台）
     apptainer exec --nv \
         --bind $HOME:/workspace \
         --bind /data:/data \
-        --overlay "$APPTAINER_IMG":ro \
+        --overlay "$GPU_IMG":rw \
         "$APPTAINER_SIF" \
         bash -c "
             cd /workspace/RoCK-KV/eval_scripts
@@ -166,7 +170,7 @@ for exp in "${EXPERIMENTS[@]}"; do
             export DEBUG='$DEBUG'
             export GPUs='${GPU_ID}'
             export CUDA_VISIBLE_DEVICES='${GPU_ID}'
-            export TORCH_CUDA_ARCH_LIST='9.0'
+            export TORCH_CUDA_ARCH_LIST='8.0'
             export HF_HOME=/workspace/.cache/huggingface
             export TOKENIZERS_PARALLELISM=false
             export HF_DATASETS_TRUST_REMOTE_CODE=1

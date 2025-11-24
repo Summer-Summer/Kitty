@@ -13,10 +13,10 @@
 # <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
 # <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
 export MODEL="Qwen/Qwen3-8B"
-export TASK_NAME="minerva_math_algebra"
-export NUM_REPEATS=3
-export BATCH_SIZE=32
-export MAX_NEW_TOKENS=4096  # 最大生成token数 (aime24/25建议32768, gpqa建议16384, 其他4096)
+export TASK_NAME="aime24"
+export NUM_REPEATS=10
+export BATCH_SIZE=6
+export MAX_NEW_TOKENS=32768  # 最大生成token数 (aime24/25建议32768, 其他4096)
 
 # 输出路径配置
 export RESULTS_DIR="./eval_results_10_19"  # 评估结果保存目录
@@ -43,21 +43,21 @@ MASTER_LOG="$HOME/RoCK-KV/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
 # GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
 declare -a EXPERIMENTS=(
     # Baseline
-    "0    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.0"
+    "4    |  run_hf_baseline"
     # KIVI K4V4
-    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.1"
-    # KIVI K2V2
-    "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.3"
-    # sinkKIVI K4V2
-    "3    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.4"
-    # sinkKIVI K2V4
-    "4    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.9"
-    # sinkKIVI K2V2
-    "5    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.1"
+    # "1    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.25"
+    # # # KIVI K2V2
+    # "2    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.5"
+    # # sinkKIVI K4V2
+    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.625"
+    # # sinkKIVI K2V4
+    # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.75"
+    # # sinkKIVI K2V2
+    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.875"
     # sinkKIVI K2.2V2
-    "6    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.2"
+    # "6    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.125"
     # sinkKIVI K2.4V2
-    "7    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      0        |    2    |    2    |       4       |      0.8"
+    # "7    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.25"
 )
 
 # ============================================================================
