@@ -1,6 +1,10 @@
 # Kitty
-Kitty is a plug-and-play KV-cache system for HuggingFace Transformers, enabling accurate 2-bit KV-cache quantization through channel-wise precision boost.  
+Kitty is a plug-and-play KV-cache system for HuggingFace Transformers, enabling accurate 2-bit KV-cache quantization.
+We introduce Dynamic Channel-wise Precision Boost, a novel 2-bit quantization algorithm for KV cache, inspired by the key observations in channel-wise patterns
+and channel-wise quantization sensitivity.
+
 This repository is the official artifact of our conference submission (under review).
+![Kitty Overview](assets/Kitty.png)
 
 ### Get the code:
 ```
@@ -108,8 +112,15 @@ See more details in [accuracy_simulation](accuracy_simulation/).
 
 ## Citation
 
-If you find Kitty useful or relevant to your research, please kindly cite [our paper (to be added)]():
-
+If you find Kitty useful or relevant to your research, please kindly cite [our paper](https://arxiv.org/abs/2511.18643):
 ```
-
+@misc{xia2025kittyaccurateefficient2bit,
+      title={Kitty: Accurate and Efficient 2-bit KV Cache Quantization with Dynamic Channel-wise Precision Boost}, 
+      author={Haojun Xia and Xiaoxia Wu and Jisen Li and Robert Wu and Junxiong Wang and Jue Wang and Chenxi Li and Aman Singhal and Alay Dilipbhai Shah and Alpay Ariyak and Donglin Zhuang and Zhongzhu Zhou and Ben Athiwaratkun and Zhen Zheng and Shuaiwen Leon Song},
+      year={2025},
+      eprint={2511.18643},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2511.18643}, 
+}
 ```

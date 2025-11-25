@@ -118,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache_implementation",   type=int, default=0,                help="Choosing KV cache implementation: (0) for Kitty; (1) for FP16 static cache; (2) for FP16 dynamic cache; (3) for INT4 quantized cache with quanto backend.")
     parser.add_argument("--max_seq_len",            type=int, default=2048,             help="Maximum sequence length for KV cache.")
     parser.add_argument("--batch_size",             type=int, default=32,               help="Batch size for generation, repeat the prompt for each batch")
-    parser.add_argument("--prompt_choice",          type=int, default=0,                help="Choice of prompt to use")
+    parser.add_argument("--prompt_choice",          type=int, default=1,                help="Choice of prompt to use")
     parser.add_argument("--warmup_runs",            type=int, default=2,                help="Number of warmup runs")
     parser.add_argument("--repeat_runs",            type=int, default=3,                help="Number of repeat runs for benchmarking")
     return parser
