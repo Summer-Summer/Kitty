@@ -80,13 +80,13 @@ If arguments are missing or invalid, the script prints usage help and exits.
 
 #### 1. Run with 10 repeats, batch_size = 2
 
-    ./accuracy_eval5.sh "Qwen/Qwen3-8B" "aime24" "0" "10" "2"
+    ./accuracy_eval.sh "Qwen/Qwen3-8B" "aime24" "0" "10" "2"
 
 #### 2. Run with defaults (1 repeat, batch_size = 1)
 
-    ./accuracy_eval5.sh "Qwen/Qwen3-8B" "aime24" "0"
+    ./accuracy_eval.sh "Qwen/Qwen3-8B" "aime24" "0"
 
 #### 3. Multi-GPU Evaluation
 
-    ./accuracy_eval5.sh "Qwen/Qwen3-32B" "aime25" "0,1" "10" "1"
+    ./accuracy_eval.sh "Qwen/Qwen3-32B" "aime25" "0,1" "10" "1"
 

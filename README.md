@@ -18,13 +18,14 @@ sudo apptainer build kitty.sif ../kitty_cuda121.def
 
 ### Building .img (writable overlay image):
 ```
-cd build
+# Still in the build directory
 apptainer overlay create --size 8192 kitty.img
 ```
 
 ### Installing software into the overlay image:
 Entering the apptainer:
 ```
+cd ..
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
 --overlay build/kitty.img build/kitty.sif bash
@@ -36,22 +37,29 @@ Installing the package:
 - Transformers: `hf-4.53.2`
 - lm_eval: `kitty`
 
-```
+```bash
 # Install transformers
 cd /workspace/Kitty/third_party/transformers
 git checkout hf-4.53.2
+# Use two-step installation to avoid cross-device link errors in overlay environment
+pip install -e . --ignore-installed --no-deps
 pip install -e .
+
 # Install lm-evaluation-harness
 cd /workspace/Kitty/third_party/lm-evaluation-harness
 git checkout kitty
 pip install -e .
+
 # Install lm-eval with math support
 pip install "lm-eval[math]"
+
 # Install Kitty
 cd /workspace/Kitty/
 pip install -e .
+
 # Install seaborn for visualization
 pip install seaborn
+
 # Install HQQ for HuggingFace's KV Cache quantization
 pip install hqq
 ```
@@ -60,12 +68,13 @@ pip install hqq
 ### Exit the Apptainer.
 ```
 exit
+
 ```
 
 ### Run experiments
 
-#### Before Runing the experiments:
-Entering the computing node (interative mode):
+#### Before Running the experiments:
+Entering the computing node (interactive mode):
 ```
 srun --ntasks=1 \
 		 --gres=gpu:8 \
@@ -77,16 +86,24 @@ srun --ntasks=1 \
 ```
 
 Entering the apptainer:
-```
+```bash
 apptainer exec --nv \
 --bind /home/$USER:/workspace \
 --overlay build/kitty.img build/kitty.sif bash
 ```
 
-#### Runing latency banchmarking:
+**Note:** To run multiple instances, use read-only mode for the overlay:
+```bash
+apptainer exec --nv \
+--bind /home/$USER:/workspace \
+--overlay build/kitty.img:ro build/kitty.sif bash
+```
+The `:ro` flag allows multiple containers to share the same overlay image without conflicts.
+
+#### Running latency benchmarking:
 See more details in [latency_benchmarking](latency_benchmarking/).
 
-#### Runing accuracy simulation:
+#### Running accuracy simulation:
 See more details in [accuracy_simulation](accuracy_simulation/).
 
 
@@ -96,4 +113,5 @@ If you find Kitty useful or relevant to your research, please kindly cite [our p
 
 ```
 
+```
 ```

@@ -3,22 +3,8 @@ GROUP_SIZE=128
 BUFFER_LENGTH=128
 PROMOTE_RATIOS=(0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0)
 
-# Helper function to get node name from hostname
-get_node_name() {
-  local hostname=$(hostname)
-  # Extract node number from format: research-external-05.cloud.together.ai
-  local node_num=$(echo "$hostname" | grep -oP 'external-\K\d+' | head -1)
-  
-  if [ -n "$node_num" ]; then
-    echo "node_${node_num}"
-  else
-    # Fallback: use full hostname
-    echo "${hostname%%.*}"
-  fi
-}
-
-# Set log directory with node subfolder
-LOG_BASE_DIR="eval_logs/$(get_node_name)"
+# Set log directory
+LOG_BASE_DIR="eval_logs"
 
 # Helper function to generate model shortname
 get_model_shortname() {

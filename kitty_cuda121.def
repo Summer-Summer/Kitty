@@ -47,6 +47,8 @@ From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
     export TOKENIZERS_PARALLELISM=false
     export HF_DATASETS_TRUST_REMOTE_CODE=1
     export PATH="/root/.local/bin:$PATH"
+    # Ensure custom transformers and lm-eval have priority over system packages
+    export PYTHONPATH="/workspace/Kitty/third_party/transformers/src:/workspace/Kitty/third_party/lm-evaluation-harness:$PYTHONPATH"
 
 %runscript
     exec "$@"
