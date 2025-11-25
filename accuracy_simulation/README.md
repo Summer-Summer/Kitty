@@ -16,6 +16,12 @@ LM-Evaluation-Harness (`kitty` branch).
 - `meta-llama/Llama-3.1-8B-Instruct`
 - `meta-llama/Llama-3.3-70B-Instruct`
 
+**Note:** Llama models require HuggingFace authentication. Login with:
+```bash
+huggingface-cli login
+```
+Or visit https://huggingface.co/settings/tokens to create an access token.
+
 ---
 
 ## Supported Tasks
@@ -54,7 +60,7 @@ Before running, make sure:
 - You have installed `Kitty` and its dependencies as in the top-level README.
 - You are inside the correct directory:
 ```
-    cd accuracy_simulation
+cd accuracy_simulation
 ```
 ---
 

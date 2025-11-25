@@ -68,7 +68,6 @@ pip install hqq
 ### Exit the Apptainer.
 ```
 exit
-
 ```
 
 ### Run experiments
@@ -113,5 +112,4 @@ If you find Kitty useful or relevant to your research, please kindly cite [our p
 
 ```
 
-```
 ```
