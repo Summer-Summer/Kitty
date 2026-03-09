@@ -9,7 +9,7 @@ def update_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--vbits",              type=int, default=2,        help="Number of bits for V Cache")
     parser.add_argument("--promote_ratio",      type=float, default=0.0,    help="Keep ratio (fp16) for mixed-precision K cache, default=0.0")
     parser.add_argument("--promote_bit",        type=int, default=4,        help="Promote bit for K cache, default=4")
-    parser.add_argument("--channel_selection",  type=int, default=1,        choices=[-1, 0, 1], help="Channel selection method: 0 for Random, 1 for Magnitude")
+    parser.add_argument("--channel_selection",  type=int, default=1,        choices=[-1, 0, 1, 2], help="Channel selection method: 0 for Random, 1 for Magnitude, 2 for Variance")
     return parser
 
 
