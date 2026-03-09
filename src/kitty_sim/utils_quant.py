@@ -22,7 +22,8 @@ def build_promote_mask(
         channel_selection : int,        channel selection strategy
                                         (-1) for Unspecified, raise an error;
                                         (0)  for Random Selection;
-                                        (2)  Magnitude-based Channel Selection;
+                                        (1)  Magnitude-based Channel Selection;
+                                        (2)  Variance-based Channel Selection;
     returns:
         promote_mask  : (B, nh, D) bool,      promote_mask[i][j] == True -> j-th channel of i-th head is selected for promotion
     """
@@ -48,6 +49,11 @@ def build_promote_mask(
         score = score.mean(dim=-1)  # (B, nh, D, T) → (B, nh, D)
         _, top_idx = score.topk(k_chan, dim=-1)     # (B, nh, k_chan)
         promote_mask.scatter_(-1, top_idx, True)   # True → promote channel, (B, nh, D)
+    elif channel_selection == 2:                                                            # (2)  Variance-based Channel Selection
+        diff = key_states - key_states.mean(dim=-1, keepdim=True)
+        score = diff.pow(2).mean(dim=-1)  # (B, nh, D, T) → (B, nh, D)
+        _, top_idx = score.topk(k_chan, dim=-1)
+        promote_mask.scatter_(-1, top_idx, True)   # True → promote channel
     ########################################################################################################################
     else:
         raise ValueError(f"Invalid channel_selection strategy: {channel_selection}")
