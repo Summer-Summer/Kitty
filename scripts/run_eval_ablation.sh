@@ -30,11 +30,11 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 export HF_HOME=/workspace/.cache/huggingface
 
 # Apptainer路径
-APPTAINER_SIF="$HOME/RoCK-KV/build/kchanboost.sif"
-APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
+APPTAINER_SIF="/data/jisenli2/Kitty/build/kchanboost.sif"
+APPTAINER_IMG="/data/jisenli2/Kitty/build/kchanboost.img"
 
 # 日志文件
-MASTER_LOG="$HOME/RoCK-KV/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
+MASTER_LOG="/data/jisenli2/Kitty/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
 
 # ============================================================================
 # 实验配置 - 8个GPU上运行的8个不同配置
@@ -68,7 +68,7 @@ declare -a EXPERIMENTS=(
 if [[ ! $- =~ i ]] || [ -t 0 ]; then
     if [ -z "$BACKGROUND_MODE" ]; then
         export BACKGROUND_MODE=1
-        mkdir -p "$HOME/RoCK-KV/log"
+        mkdir -p "/data/jisenli2/Kitty/log"
         echo "Starting in background mode..."
         echo "Master log: $MASTER_LOG"
         echo "Use 'tail -f $MASTER_LOG' to monitor progress"
@@ -84,7 +84,7 @@ if [[ ! $- =~ i ]] || [ -t 0 ]; then
 fi
 
 echo "=========================================="
-echo "RoCK-KV Evaluation (Background Mode)"
+echo "Kitty Evaluation (Background Mode)"
 echo "=========================================="
 echo "Node: $(hostname)"
 echo "Start: $(date)"
@@ -99,7 +99,7 @@ echo "Master PID: $$"
 echo "=========================================="
 echo ""
 
-mkdir -p "$HOME/RoCK-KV/log"
+mkdir -p "/data/jisenli2/Kitty/log"
 
 # 存储后台进程PID
 declare -a PIDS=()
@@ -139,7 +139,7 @@ for exp in "${EXPERIMENTS[@]}"; do
         --overlay "$APPTAINER_IMG":ro \
         "$APPTAINER_SIF" \
         bash -c "
-            cd /workspace/RoCK-KV/eval_scripts
+            cd /data/jisenli2/Kitty/accuracy_simulation
             
             # 导出环境变量
             export MODEL='$MODEL'
@@ -167,7 +167,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                 NODE_NAME_TMP=\$(hostname | cut -d. -f1)
             fi
             MODEL_SHORT=\$(get_model_shortname \"\$MODEL\")
-            export LOG_BASE_DIR=\"/workspace/RoCK-KV/eval_scripts/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
+            export LOG_BASE_DIR=\"/data/jisenli2/Kitty/accuracy_simulation/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
             mkdir -p \${LOG_BASE_DIR}
             
             # 调用函数
@@ -188,7 +188,7 @@ for exp in "${EXPERIMENTS[@]}"; do
 
                   CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
                   HF_DATASETS_TRUST_REMOTE_CODE=1 \
-                    eval_rock_kv \$MODEL \
+                    eval_kitty \$MODEL \
                       --task \$TASK_NAME \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
@@ -223,9 +223,9 @@ for exp in "${EXPERIMENTS[@]}"; do
 
                   CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
                   HF_DATASETS_TRUST_REMOTE_CODE=1 \
-                    eval_rock_kv \$MODEL \
+                    eval_kitty \$MODEL \
                       --task \$TASK_NAME \
-                      --eval_rock_kv \
+                      --eval_kitty \
                       --sink_length \$sink \
                       --buffer_length \${BUFFER_LENGTH} \
                       --group_size \${GROUP_SIZE} \
@@ -274,7 +274,7 @@ fi
 # 获取模型简称（用于路径）
 MODEL_SHORT=$(echo "$MODEL" | sed 's|.*/||' | sed 's/-/_/g')
 
-LOG_DIR="$HOME/RoCK-KV/eval_scripts/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}"
+LOG_DIR="/data/jisenli2/Kitty/accuracy_simulation/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}"
 
 # 检查结果
 echo "Results Summary:"
@@ -300,7 +300,7 @@ for exp in "${EXPERIMENTS[@]}"; do
 done
 
 echo ""
-echo "Results: eval_scripts/${RESULTS_DIR}/${MODEL##*/}/${TASK_NAME}/"
+echo "Results: accuracy_simulation/${RESULTS_DIR}/${MODEL##*/}/${TASK_NAME}/"
 echo "Logs: ${LOG_DIR}/"
 echo ""
 echo "Log structure: ${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}/"

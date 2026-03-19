@@ -45,8 +45,8 @@ export TORCH_CUDA_ARCH_LIST="8.0"  # A100 GPU (Ampere架构)
 export HF_HOME=/workspace/.cache/huggingface
 
 # Apptainer路径
-APPTAINER_SIF="$HOME/RoCK-KV/build/kchanboost.sif"
-APPTAINER_IMG="$HOME/RoCK-KV/build/hf_kv.img"  # 使用 hf_kv.img (已安装 optimum-quanto)
+APPTAINER_SIF="/data/jisenli2/Kitty/build/kchanboost.sif"
+APPTAINER_IMG="/data/jisenli2/Kitty/build/hf_kv.img"  # 使用 hf_kv.img (已安装 optimum-quanto)
 
 # ============================================================================
 # 实验配置 - 支持不同GPU运行不同Task
@@ -100,7 +100,7 @@ echo "Logs Dir: $LOGS_DIR"
 echo "=========================================="
 echo ""
 
-mkdir -p "$HOME/RoCK-KV/log"
+mkdir -p "/data/jisenli2/Kitty/log"
 
 # 存储后台进程PID
 declare -a PIDS=()
@@ -148,7 +148,7 @@ for exp in "${EXPERIMENTS[@]}"; do
     fi
     
     # 根据 GPU_ID 选择对应的 image 副本（每个 GPU 有独立的可写 image）
-    GPU_IMG="$HOME/RoCK-KV/build/hf_kv_${GPU_ID}.img"
+    GPU_IMG="/data/jisenli2/Kitty/build/hf_kv_${GPU_ID}.img"
     echo "  - Using image: hf_kv_${GPU_ID}.img"
     
     # 在Apptainer中运行（后台）
@@ -158,7 +158,7 @@ for exp in "${EXPERIMENTS[@]}"; do
         --overlay "$GPU_IMG":rw \
         "$APPTAINER_SIF" \
         bash -c "
-            cd /workspace/RoCK-KV/eval_scripts
+            cd /data/jisenli2/Kitty/accuracy_simulation
             
             # 导出环境变量
             export MODEL='$MODEL'
@@ -186,7 +186,7 @@ for exp in "${EXPERIMENTS[@]}"; do
                 NODE_NAME_TMP=\$(hostname | cut -d. -f1)
             fi
             MODEL_SHORT=\$(get_model_shortname \"\$MODEL\")
-            export LOG_BASE_DIR=\"/workspace/RoCK-KV/eval_scripts/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
+            export LOG_BASE_DIR=\"/data/jisenli2/Kitty/accuracy_simulation/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
             mkdir -p \${LOG_BASE_DIR}
             
             # 调用函数
@@ -207,7 +207,7 @@ for exp in "${EXPERIMENTS[@]}"; do
 
                   CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
                   HF_DATASETS_TRUST_REMOTE_CODE=1 \
-                    \$HOME/.local/bin/eval_rock_kv \$MODEL \
+                    eval_kitty \$MODEL \
                       --task \$TASK_NAME \
                       --num_repeats \${repeats} \
                       --batch_size \${BATCH_SIZE:-1} \
@@ -238,7 +238,7 @@ for exp in "${EXPERIMENTS[@]}"; do
 
                   CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
                   HF_DATASETS_TRUST_REMOTE_CODE=1 \
-                    \$HOME/.local/bin/eval_hf_kv \$MODEL \
+                    eval_hf_kv \$MODEL \
                       --task \$TASK_NAME \
                       --hf_cache_backend \$backend \
                       --hf_cache_nbits \$nbits \
@@ -303,7 +303,7 @@ for TASK in "${!TASKS_MAP[@]}"; do
     echo "Task: $TASK"
     echo "  Log dir: ${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK}/"
     
-    LOG_DIR="$HOME/RoCK-KV/eval_scripts/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK}"
+    LOG_DIR="/data/jisenli2/Kitty/accuracy_simulation/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK}"
     
     for exp in "${EXPERIMENTS[@]}"; do
         IFS='|' read -ra PARTS <<< "$exp"
@@ -343,7 +343,7 @@ for TASK in "${!TASKS_MAP[@]}"; do
 done
 
 echo ""
-echo "Results base dir: eval_scripts/${RESULTS_DIR}/${MODEL##*/}/"
+echo "Results base dir: accuracy_simulation/${RESULTS_DIR}/${MODEL##*/}/"
 echo "Logs base dir: ${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/"
 echo ""
 echo "=========================================="

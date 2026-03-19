@@ -37,8 +37,11 @@ From: pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
     # 4. Clean
     #rm "${DEB_PATH}"
 
-    # used for huggingface quantized cache
-    pip install hqq
+    # Pin versions to avoid overlayfs dist-info conflicts when using Apptainer.
+    # The base image ships newer versions; third_party/transformers requires these ranges.
+    pip install 'tokenizers==0.21.4' 'huggingface-hub>=0.30.0,<1.0'
+
+    # used for huggingface quantized cache (hqq excluded: pulls transformers-5.x which breaks pins)
     pip install --no-deps optimum-quanto
 
 %environment

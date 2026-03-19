@@ -29,7 +29,7 @@ class KittyKVCacheConfig(CacheConfig):
         vbits: int = 2,
         promote_ratio: float = 0.1,
         promote_bit: int = 4,
-        channel_selection: int = 1,               # -1: Unspecified, 0: Random, 1: Magnitude-based
+        channel_selection: int = 1,               # -1: Unspecified, 0: Random, 1: Magnitude-based, 2: Variance-based
         VCache_BitDecoding: bool = False,         # The behavior of Value Cache, set to True means BitDecoding, otherwise KIVI Style Value Cache
         PostQuant: bool = True,                   # Post Quantization is always enabled
     ):
@@ -53,11 +53,11 @@ class KittyKVCacheConfig(CacheConfig):
             "Some of the keys in `cache_config` are defined incorrectly. `{key}` should be {correct_value}` "
             "but found {found_value}"
         )
-        if self.channel_selection not in [0,1]:
+        if self.channel_selection not in [0, 1, 2]:
             raise ValueError(
                 incorrect_arg_msg.format(
                     key="channel_selection",
-                    correct_value="0 or 1",
+                    correct_value="0, 1, or 2",
                     found_value=self.channel_selection,
                 ),
             )

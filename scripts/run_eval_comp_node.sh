@@ -1,75 +1,69 @@
 #!/bin/bash
 # 在后台运行的版本 - 可以安全关闭终端
-# 使用方法: 
-#   nohup bash run_eval_background.sh > run_eval.out 2>&1 &
-# 或者:
-#   bash run_eval_background.sh  # 会自动在后台运行
+# 使用方法:
+#   bash scripts/run_eval_comp_node.sh  # 会自动在后台运行
 
 # ============================================================================
-# 配置区域 - 在这里修改参数
+# 配置区域
 # ============================================================================
 
-# 模型和任务配置
-# <MODEL>: "meta-llama/Llama-3.1-8B-Instruct" "meta-llama/Llama-3.3-70B-Instruct" "Qwen/Qwen3-8B" "Qwen/Qwen3-14B" "Qwen/Qwen3-32B" "Qwen/Qwen3-4B"
-# <TASK_NAME>: "gsm8k_cot_llama" "minerva_math_algebra" "humaneval_instruct" "gpqa_diamond_cot_n_shot" "mmlu_flan_cot_fewshot" "aime24" "aime25"
-
-export MODEL="meta-llama/Llama-3.1-8B-Instruct"
-export TASK_NAME="gpqa_diamond_cot_n_shot"
+export MODEL="Qwen/Qwen3-8B"
 export NUM_REPEATS=5
 export BATCH_SIZE=32
-export MAX_NEW_TOKENS=4096  # 最大生成token数 (aime24/25建议32768, gpqa建议16384, 其他4096)
+export MAX_NEW_TOKENS=4096  # aime24/25建议32768, 其他4096
 
-# 输出路径配置
-export RESULTS_DIR="./eval_results_10_19"  # 评估结果保存目录
-export LOGS_DIR="eval_logs_10_19"          # 日志保存目录
+export RESULTS_DIR="./eval_results_rerun"
+export LOGS_DIR="eval_logs_rerun"
 
-# DEBUG模式 (设置为1或true则只运行1个repeat且只运行前3题，用于快速测试)
 export DEBUG=0
 
-# 环境变量
+export BUFFER_LENGTH=128
+export GROUP_SIZE=128
+
 export TORCH_CUDA_ARCH_LIST="9.0"
-export HF_HOME=/workspace/.cache/huggingface
+export HF_HOME=/data/shared/huggingface
 
-# Apptainer路径
-APPTAINER_SIF="$HOME/RoCK-KV/build/kchanboost.sif"
-APPTAINER_IMG="$HOME/RoCK-KV/build/kchanboost.img"
+APPTAINER_SIF="/data/jisenli2/Kitty/build/kitty_v2.sif"
+APPTAINER_IMG="/data/jisenli2/Kitty/build/kitty_v2.img"
 
-# 日志文件
-MASTER_LOG="$HOME/RoCK-KV/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
+MASTER_LOG="/data/jisenli2/Kitty/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
 
 # ============================================================================
-# 实验配置 - 8个GPU上运行的8个不同配置
+# 实验配置
 # ============================================================================
-
-# GPU     |  函数             |  label                   |  sink  |  channel_sel  |  kbits  |  vbits  |  promote_bit  |  promote_ratio
+# Rerun: Variance-based Channel Selection (channel_selection=2)
+# 每行一个实验, task 在第3列, 可以混合不同 task
+#
+# GPU | 函数           | task_name              | label              | sink | ch_sel | kbits | vbits | promo_bit | promo_ratio
 declare -a EXPERIMENTS=(
-    # Baseline
-    # "7    |  run_hf_baseline"
-    # KIVI K4V4
-    "4    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.125"
-    # # KIVI K2V2
-    "7    |  run_single_exp  |  Accuracy_Across_Ratios  |   32    |      2        |    2    |    2    |       4       |      0.25"
-    # # sinkKIVI K4V2
-    # "3    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    4    |    2    |       4       |      0.0"
-    # sinkKIVI K2V4
-    # "4    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    4    |       4       |      0.0"
-    # # sinkKIVI K2V2
-    # "5    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.0"
-    # sinkKIVI K2.2V2
-    # "6    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.1"
-    # # sinkKIVI K2.4V2
-    # "7    |  run_single_exp  |  Accuracy_Across_Ratios  |  32    |      2        |    2    |    2    |       4       |      0.2"
+    # --- gsm8k_cot_llama ---
+    "0  | run_single_exp | gsm8k_cot_llama       | sinkKIVI-K2V2      | 32   | 2      | 2     | 2     | 4         | 0.0"
+    "1  | run_single_exp | gsm8k_cot_llama       | kChanBoost-12.5    | 32   | 2      | 2     | 2     | 4         | 0.125"
+    "2  | run_single_exp | gsm8k_cot_llama       | kChanBoost-25      | 32   | 2      | 2     | 2     | 4         | 0.25"
+    "3  | run_single_exp | gsm8k_cot_llama       | kChanBoost-37.5    | 32   | 2      | 2     | 2     | 4         | 0.375"
+    "4  | run_single_exp | gsm8k_cot_llama       | kChanBoost-50      | 32   | 2      | 2     | 2     | 4         | 0.5"
+    "5  | run_single_exp | gsm8k_cot_llama       | kChanBoost-62.5    | 32   | 2      | 2     | 2     | 4         | 0.625"
+    "6  | run_single_exp | gsm8k_cot_llama       | kChanBoost-75      | 32   | 2      | 2     | 2     | 4         | 0.75"
+    "7  | run_single_exp | gsm8k_cot_llama       | kChanBoost-87.5    | 32   | 2      | 2     | 2     | 4         | 0.875"
+    # --- minerva_math_algebra (uncomment when ready) ---
+    # "0  | run_single_exp | minerva_math_algebra  | sinkKIVI-K2V2      | 32   | 2      | 2     | 2     | 4         | 0.0"
+    # "1  | run_single_exp | minerva_math_algebra  | kChanBoost-12.5    | 32   | 2      | 2     | 2     | 4         | 0.125"
+    # "2  | run_single_exp | minerva_math_algebra  | kChanBoost-25      | 32   | 2      | 2     | 2     | 4         | 0.25"
+    # "3  | run_single_exp | minerva_math_algebra  | kChanBoost-37.5    | 32   | 2      | 2     | 2     | 4         | 0.375"
+    # "4  | run_single_exp | minerva_math_algebra  | kChanBoost-50      | 32   | 2      | 2     | 2     | 4         | 0.5"
+    # "5  | run_single_exp | minerva_math_algebra  | kChanBoost-62.5    | 32   | 2      | 2     | 2     | 4         | 0.625"
+    # "6  | run_single_exp | minerva_math_algebra  | kChanBoost-75      | 32   | 2      | 2     | 2     | 4         | 0.75"
+    # "7  | run_single_exp | minerva_math_algebra  | kChanBoost-87.5    | 32   | 2      | 2     | 2     | 4         | 0.875"
 )
 
 # ============================================================================
-# 主程序
+# 主程序 (自动后台)
 # ============================================================================
 
-# 如果不是在后台运行，自动转到后台
 if [[ ! $- =~ i ]] || [ -t 0 ]; then
     if [ -z "$BACKGROUND_MODE" ]; then
         export BACKGROUND_MODE=1
-        mkdir -p "$HOME/RoCK-KV/log"
+        mkdir -p "/data/jisenli2/Kitty/log"
         echo "Starting in background mode..."
         echo "Master log: $MASTER_LOG"
         echo "Use 'tail -f $MASTER_LOG' to monitor progress"
@@ -85,12 +79,11 @@ if [[ ! $- =~ i ]] || [ -t 0 ]; then
 fi
 
 echo "=========================================="
-echo "RoCK-KV Evaluation (Background Mode)"
+echo "Kitty Evaluation (Background Mode)"
 echo "=========================================="
 echo "Node: $(hostname)"
 echo "Start: $(date)"
 echo "Model: $MODEL"
-echo "Task: $TASK_NAME"
 echo "Num Repeats: $NUM_REPEATS"
 echo "Batch Size: $BATCH_SIZE"
 echo "Max New Tokens: $MAX_NEW_TOKENS"
@@ -100,49 +93,44 @@ echo "Master PID: $$"
 echo "=========================================="
 echo ""
 
-mkdir -p "$HOME/RoCK-KV/log"
+mkdir -p "/data/jisenli2/Kitty/log"
 
-# 存储后台进程PID
 declare -a PIDS=()
 
-echo "Starting 8 parallel experiments in Apptainer..."
+echo "Starting parallel experiments in Apptainer..."
 echo ""
 
-# 启动8个GPU任务
 for exp in "${EXPERIMENTS[@]}"; do
     IFS='|' read -ra PARTS <<< "$exp"
-    # Trim所有参数的空格
     TRIMMED_PARTS=()
     for part in "${PARTS[@]}"; do
         TRIMMED_PARTS+=($(echo "$part" | xargs))
     done
-    
+
     GPU_ID="${TRIMMED_PARTS[0]}"
     FUNC_NAME="${TRIMMED_PARTS[1]}"
-    
-    echo "GPU ${GPU_ID}: ${FUNC_NAME} ${TRIMMED_PARTS[@]:2}"
-    
-    # 提取run_single_exp的参数（如果有）
+    TASK_NAME="${TRIMMED_PARTS[2]}"
+
     if [ "$FUNC_NAME" = "run_single_exp" ]; then
-        LABEL="${TRIMMED_PARTS[2]}"
-        SINK="${TRIMMED_PARTS[3]}"
-        CHANNEL="${TRIMMED_PARTS[4]}"
-        KBITS="${TRIMMED_PARTS[5]}"
-        VBITS="${TRIMMED_PARTS[6]}"
-        PROMOTE_BIT="${TRIMMED_PARTS[7]}"
-        PROMOTE_RATIO="${TRIMMED_PARTS[8]}"
+        LABEL="${TRIMMED_PARTS[3]}"
+        SINK="${TRIMMED_PARTS[4]}"
+        CHANNEL="${TRIMMED_PARTS[5]}"
+        KBITS="${TRIMMED_PARTS[6]}"
+        VBITS="${TRIMMED_PARTS[7]}"
+        PROMOTE_BIT="${TRIMMED_PARTS[8]}"
+        PROMOTE_RATIO="${TRIMMED_PARTS[9]}"
     fi
-    
-    # 在Apptainer中运行（后台）
+
+    echo "GPU ${GPU_ID}: [${TASK_NAME}] ${LABEL:-baseline} (sel=${CHANNEL:-n/a}, promo=${PROMOTE_RATIO:-n/a})"
+
     apptainer exec --nv \
         --bind $HOME:/workspace \
         --bind /data:/data \
         --overlay "$APPTAINER_IMG":ro \
         "$APPTAINER_SIF" \
         bash -c "
-            cd /workspace/RoCK-KV/eval_scripts
-            
-            # 导出环境变量
+            cd /data/jisenli2/Kitty/accuracy_simulation
+
             export MODEL='$MODEL'
             export TASK_NAME='$TASK_NAME'
             export NUM_REPEATS=$NUM_REPEATS
@@ -153,98 +141,82 @@ for exp in "${EXPERIMENTS[@]}"; do
             export GPUs='${GPU_ID}'
             export CUDA_VISIBLE_DEVICES='${GPU_ID}'
             export TORCH_CUDA_ARCH_LIST='9.0'
-            export HF_HOME=/workspace/.cache/huggingface
+            export HF_HOME=/data/shared/huggingface
+            export PYTHONUNBUFFERED=1
             export TOKENIZERS_PARALLELISM=false
             export HF_DATASETS_TRUST_REMOTE_CODE=1
-            
-            # Source utils.sh
+            export PYTHONPATH='/data/jisenli2/Kitty/third_party/transformers/src:/data/jisenli2/Kitty/third_party/lm-evaluation-harness'
+
             source ./utils.sh
-            
-            # 设置带模型和任务的日志目录
-            NODE_NAME_TMP=\$(hostname | grep -oP 'external-\K\d+' | head -1)
-            if [ -n \"\$NODE_NAME_TMP\" ]; then
-                NODE_NAME_TMP=\"node_\${NODE_NAME_TMP}\"
-            else
-                NODE_NAME_TMP=\$(hostname | cut -d. -f1)
-            fi
+
             MODEL_SHORT=\$(get_model_shortname \"\$MODEL\")
-            export LOG_BASE_DIR=\"/workspace/RoCK-KV/eval_scripts/\${LOGS_DIR}/\${NODE_NAME_TMP}/\${MODEL_SHORT}/\${TASK_NAME}\"
+            export LOG_BASE_DIR=\"/data/jisenli2/Kitty/\${LOGS_DIR}/\${MODEL_SHORT}/\${TASK_NAME}\"
             mkdir -p \${LOG_BASE_DIR}
-            
-            # 调用函数
+
             if [ '${FUNC_NAME}' = 'run_hf_baseline' ]; then
-                run_hf_baseline() {
-                  local repeats=\${NUM_REPEATS:-1}
-                  local debug_flag=''
-                  if [ \"\${DEBUG}\" = '1' ] || [ \"\${DEBUG}\" = 'true' ]; then
-                    repeats=1
-                    debug_flag='--debug'
-                  fi
-                  
-                  echo \"Launching \$TASK_NAME on GPUs \$GPUs\"
-                  echo \"Huggingface baseline, k=16, v=16, num_repeats=\${repeats}\"
+                local_run() {
+                    local repeats=\${NUM_REPEATS:-1}
+                    local debug_flag=''
+                    if [ \"\${DEBUG}\" = '1' ] || [ \"\${DEBUG}\" = 'true' ]; then
+                        repeats=1
+                        debug_flag='--debug'
+                    fi
+                    local model_short=\$(get_model_shortname \"\$MODEL\")
+                    local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_fp16.log\"
 
-                  local model_short=\$(get_model_shortname \"\$MODEL\")
-                  local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_fp16.log\"
-
-                  CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
-                  HF_DATASETS_TRUST_REMOTE_CODE=1 \
-                    eval_rock_kv \$MODEL \
-                      --task \$TASK_NAME \
-                      --num_repeats \${repeats} \
-                      --batch_size \${BATCH_SIZE:-1} \
-                      --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
-                      --results_dir \${RESULTS_DIR:-./eval_results} \
-                      \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
+                    CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
+                    HF_DATASETS_TRUST_REMOTE_CODE=1 \
+                        eval_kitty \$MODEL \
+                            --task \$TASK_NAME \
+                            --num_repeats \${repeats} \
+                            --batch_size \${BATCH_SIZE:-1} \
+                            --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
+                            --results_dir \${RESULTS_DIR:-./eval_results} \
+                            \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
-                run_hf_baseline
+                local_run
             else
-                run_single_exp() {
-                  local label=\$1
-                  local sink=\$2
-                  local channel=\$3
-                  local kbits=\$4
-                  local vbits=\$5
-                  local promote_bit=\$6
-                  local promote_ratio=\$7
-                  
-                  local repeats=\${NUM_REPEATS:-1}
-                  local debug_flag=''
-                  if [ \"\${DEBUG}\" = '1' ] || [ \"\${DEBUG}\" = 'true' ]; then
-                    repeats=1
-                    debug_flag='--debug'
-                  fi
-                  
-                  echo \"Launching \$TASK_NAME on GPUs \$GPUs\"
-                  echo \"label=\$label, sink=\$sink, channel_sel=\$channel, k=\$kbits, v=\$vbits, promote_bit=\$promote_bit, promote_ratio=\$promote_ratio, num_repeats=\${repeats}\"
+                local_run() {
+                    local label=\$1 sink=\$2 channel=\$3
+                    local kbits=\$4 vbits=\$5 promote_bit=\$6 promote_ratio=\$7
 
-                  local model_short=\$(get_model_shortname \"\$MODEL\")
-                  local promote_ratio_str=\$(echo \"\$promote_ratio\" | sed 's/\\./_/g')
-                  local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_s\${sink}_sel\${channel}_k\${kbits}v\${vbits}_pro\${promote_ratio_str}.log\"
+                    local repeats=\${NUM_REPEATS:-1}
+                    local debug_flag=''
+                    if [ \"\${DEBUG}\" = '1' ] || [ \"\${DEBUG}\" = 'true' ]; then
+                        repeats=1
+                        debug_flag='--debug'
+                    fi
 
-                  CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
-                  HF_DATASETS_TRUST_REMOTE_CODE=1 \
-                    eval_rock_kv \$MODEL \
-                      --task \$TASK_NAME \
-                      --eval_rock_kv \
-                      --sink_length \$sink \
-                      --buffer_length \${BUFFER_LENGTH} \
-                      --group_size \${GROUP_SIZE} \
-                      --kbits \${kbits} \
-                      --vbits \${vbits} \
-                      --promote_ratio \$promote_ratio \
-                      --promote_bit \$promote_bit \
-                      --channel_selection \$channel \
-                      --num_repeats \${repeats} \
-                      --batch_size \${BATCH_SIZE:-1} \
-                      --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
-                      --results_dir \${RESULTS_DIR:-./eval_results} \
-                      \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
+                    echo \"Launching \$TASK_NAME on GPUs \$GPUs\"
+                    echo \"label=\$label, sink=\$sink, channel_sel=\$channel, k=\$kbits, v=\$vbits, promote_bit=\$promote_bit, promote_ratio=\$promote_ratio, num_repeats=\${repeats}\"
+
+                    local model_short=\$(get_model_shortname \"\$MODEL\")
+                    local promote_ratio_str=\$(echo \"\$promote_ratio\" | sed 's/\\./_/g')
+                    local log_name=\"\${GPUs//,/}_\${model_short}_\${TASK_NAME}_s\${sink}_sel\${channel}_k\${kbits}v\${vbits}_pro\${promote_ratio_str}.log\"
+
+                    CUDA_VISIBLE_DEVICES=\$GPUs TOKENIZERS_PARALLELISM=false \
+                    HF_DATASETS_TRUST_REMOTE_CODE=1 \
+                        eval_kitty \$MODEL \
+                            --task \$TASK_NAME \
+                            --eval_kitty \
+                            --sink_length \$sink \
+                            --buffer_length \${BUFFER_LENGTH} \
+                            --group_size \${GROUP_SIZE} \
+                            --kbits \${kbits} \
+                            --vbits \${vbits} \
+                            --promote_ratio \$promote_ratio \
+                            --promote_bit \$promote_bit \
+                            --channel_selection \$channel \
+                            --num_repeats \${repeats} \
+                            --batch_size \${BATCH_SIZE:-1} \
+                            --max_new_tokens \${MAX_NEW_TOKENS:-4096} \
+                            --results_dir \${RESULTS_DIR:-./eval_results} \
+                            \${debug_flag} > \${LOG_BASE_DIR}/\${log_name} 2>&1
                 }
-                run_single_exp '${LABEL}' ${SINK} ${CHANNEL} ${KBITS} ${VBITS} ${PROMOTE_BIT} ${PROMOTE_RATIO}
+                local_run '${LABEL}' ${SINK} ${CHANNEL} ${KBITS} ${VBITS} ${PROMOTE_BIT} ${PROMOTE_RATIO}
             fi
         " &
-    
+
     PIDS+=($!)
     sleep 2
 done
@@ -253,7 +225,6 @@ echo ""
 echo "All tasks launched. PIDs: ${PIDS[@]}"
 echo ""
 
-# 等待所有任务完成
 echo "Waiting for all experiments to complete..."
 wait
 
@@ -264,45 +235,33 @@ echo "End: $(date)"
 echo "=========================================="
 echo ""
 
-# 获取节点名称和模型简称
-NODE_NAME=$(hostname | grep -oP 'external-\K\d+' | head -1)
-if [ -n "$NODE_NAME" ]; then
-    NODE_NAME="node_${NODE_NAME}"
-else
-    NODE_NAME=$(hostname | cut -d. -f1)
-fi
-
-# 获取模型简称（用于路径）
 MODEL_SHORT=$(echo "$MODEL" | sed 's|.*/||' | sed 's/-/_/g')
 
-LOG_DIR="$HOME/RoCK-KV/eval_scripts/${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}"
-
-# 检查结果
 echo "Results Summary:"
 echo "----------------------------------------"
 for exp in "${EXPERIMENTS[@]}"; do
     IFS='|' read -ra PARTS <<< "$exp"
-    # Trim空格
-    GPU_ID=$(echo "${PARTS[0]}" | xargs)
-    FUNC_NAME=$(echo "${PARTS[1]}" | xargs)
-    
-    # 查找日志文件
+    TRIMMED_PARTS=()
+    for part in "${PARTS[@]}"; do
+        TRIMMED_PARTS+=($(echo "$part" | xargs))
+    done
+    GPU_ID="${TRIMMED_PARTS[0]}"
+    TASK="${TRIMMED_PARTS[2]}"
+
+    LOG_DIR="/data/jisenli2/Kitty/${LOGS_DIR}/${MODEL_SHORT}/${TASK}"
     LOG_FILES=$(ls ${LOG_DIR}/${GPU_ID}_*.log 2>/dev/null)
-    
+
     if [ -n "$LOG_FILES" ]; then
         for LOG_FILE in $LOG_FILES; do
             COMPLETED=$(grep -c "All samples evaluated" "$LOG_FILE" 2>/dev/null || echo "0")
             FILENAME=$(basename "$LOG_FILE")
-            echo "GPU ${GPU_ID}: ${FILENAME} - ${COMPLETED}/${NUM_REPEATS} repeats completed"
+            echo "GPU ${GPU_ID}: [${TASK}] ${FILENAME} - ${COMPLETED}/${NUM_REPEATS} repeats completed"
         done
     else
-        echo "GPU ${GPU_ID}: No log file found"
+        echo "GPU ${GPU_ID}: [${TASK}] No log file found"
     fi
 done
 
 echo ""
-echo "Results: eval_scripts/${RESULTS_DIR}/${MODEL##*/}/${TASK_NAME}/"
-echo "Logs: ${LOG_DIR}/"
-echo ""
-echo "Log structure: ${LOGS_DIR}/${NODE_NAME}/${MODEL_SHORT}/${TASK_NAME}/"
-
+echo "Results: ${RESULTS_DIR}/${MODEL##*/}/"
+echo "Logs: ${LOGS_DIR}/${MODEL_SHORT}/"
