@@ -31,7 +31,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 export HF_HOME=/data/shared/huggingface
 
 APPTAINER_SIF="/data/jisenli2/Kitty/build/kitty_v2.sif"
-APPTAINER_IMG="/data/jisenli2/Kitty/build/kitty_v2.img"
+APPTAINER_IMG="/data/jisenli2/Kitty/build/kitty_v3.img" # have the math lib installed
 
 # ============================================================================
 # 实验配置

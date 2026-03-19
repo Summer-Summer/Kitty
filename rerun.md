@@ -250,6 +250,7 @@ apptainer exec --nv \
     pip install -e /data/jisenli2/Kitty/third_party/transformers
     pip install -e /data/jisenli2/Kitty/third_party/lm-evaluation-harness
     pip install -e /data/jisenli2/Kitty
+    pip install 'lm-eval[math]'   # minerva_math_algebra 等数学任务必须！
 "
 
 # 4. 验证
