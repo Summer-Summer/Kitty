@@ -37,14 +37,14 @@ MASTER_LOG="/data/jisenli2/Kitty/log/run_eval_$(date +%Y%m%d_%H%M%S).log"
 # GPU | 函数           | task_name              | label              | sink | ch_sel | kbits | vbits | promo_bit | promo_ratio
 declare -a EXPERIMENTS=(
     # --- gsm8k_cot_llama ---
-    "0  | run_single_exp | gsm8k_cot_llama       | sinkKIVI-K2V2      | 32   | 2      | 2     | 2     | 4         | 0.0"
-    "1  | run_single_exp | gsm8k_cot_llama       | kChanBoost-12.5    | 32   | 2      | 2     | 2     | 4         | 0.125"
-    "2  | run_single_exp | gsm8k_cot_llama       | kChanBoost-25      | 32   | 2      | 2     | 2     | 4         | 0.25"
-    "3  | run_single_exp | gsm8k_cot_llama       | kChanBoost-37.5    | 32   | 2      | 2     | 2     | 4         | 0.375"
-    "4  | run_single_exp | gsm8k_cot_llama       | kChanBoost-50      | 32   | 2      | 2     | 2     | 4         | 0.5"
-    "5  | run_single_exp | gsm8k_cot_llama       | kChanBoost-62.5    | 32   | 2      | 2     | 2     | 4         | 0.625"
-    "6  | run_single_exp | gsm8k_cot_llama       | kChanBoost-75      | 32   | 2      | 2     | 2     | 4         | 0.75"
-    "7  | run_single_exp | gsm8k_cot_llama       | kChanBoost-87.5    | 32   | 2      | 2     | 2     | 4         | 0.875"
+    "0  | run_single_exp | gsm8k_cot_llama       | sinkKIVI-K2V2      | 32   | 1      | 2     | 2     | 4         | 0.0"
+    "1  | run_single_exp | gsm8k_cot_llama       | kChanBoost-12.5    | 32   | 1      | 2     | 2     | 4         | 0.125"
+    "2  | run_single_exp | gsm8k_cot_llama       | kChanBoost-25      | 32   | 1      | 2     | 2     | 4         | 0.25"
+    "3  | run_single_exp | gsm8k_cot_llama       | kChanBoost-37.5    | 32   | 1      | 2     | 2     | 4         | 0.375"
+    "4  | run_single_exp | gsm8k_cot_llama       | kChanBoost-50      | 32   | 1      | 2     | 2     | 4         | 0.5"
+    "5  | run_single_exp | gsm8k_cot_llama       | kChanBoost-62.5    | 32   | 1      | 2     | 2     | 4         | 0.625"
+    "6  | run_single_exp | gsm8k_cot_llama       | kChanBoost-75      | 32   | 1      | 2     | 2     | 4         | 0.75"
+    "7  | run_single_exp | gsm8k_cot_llama       | kChanBoost-87.5    | 32   | 1      | 2     | 2     | 4         | 0.875"
     # --- minerva_math_algebra (uncomment when ready) ---
     # "0  | run_single_exp | minerva_math_algebra  | sinkKIVI-K2V2      | 32   | 2      | 2     | 2     | 4         | 0.0"
     # "1  | run_single_exp | minerva_math_algebra  | kChanBoost-12.5    | 32   | 2      | 2     | 2     | 4         | 0.125"
