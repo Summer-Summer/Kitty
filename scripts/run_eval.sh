@@ -2,7 +2,7 @@
 #SBATCH --job-name=kitty_eval
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=500G
 #SBATCH --time=150:00:00
@@ -51,14 +51,18 @@ declare -a EXPERIMENTS=(
     # "6  | run_single_exp | gsm8k_cot_llama       | kChanBoost-75      | 32   | 2      | 2     | 2     | 4         | 0.75"
     # "7  | run_single_exp | gsm8k_cot_llama       | kChanBoost-87.5    | 32   | 2      | 2     | 2     | 4         | 0.875"
     # --- minerva_math_algebra (uncomment when ready) ---
-    "0  | run_single_exp | minerva_math_algebra  | sinkKIVI-K2V2      | 32   | 1      | 2     | 2     | 4         | 0.0"
-    "1  | run_single_exp | minerva_math_algebra  | kChanBoost-12.5    | 32   | 1      | 2     | 2     | 4         | 0.125"
-    "2  | run_single_exp | minerva_math_algebra  | kChanBoost-25      | 32   | 1      | 2     | 2     | 4         | 0.25"
-    "3  | run_single_exp | minerva_math_algebra  | kChanBoost-37.5    | 32   | 1      | 2     | 2     | 4         | 0.375"
-    "4  | run_single_exp | minerva_math_algebra  | kChanBoost-50      | 32   | 1      | 2     | 2     | 4         | 0.5"
-    "5  | run_single_exp | minerva_math_algebra  | kChanBoost-62.5    | 32   | 1      | 2     | 2     | 4         | 0.625"
-    "6  | run_single_exp | minerva_math_algebra  | kChanBoost-75      | 32   | 1      | 2     | 2     | 4         | 0.75"
-    "7  | run_single_exp | minerva_math_algebra  | kChanBoost-87.5    | 32   | 1      | 2     | 2     | 4         | 0.875"
+    # "0  | run_single_exp | minerva_math_algebra  | sinkKIVI-K2V2      | 32   | 2      | 2     | 2     | 4         | 0.0"
+    # "1  | run_single_exp | minerva_math_algebra  | kChanBoost-12.5    | 32   | 2      | 2     | 2     | 4         | 0.125"
+    # "2  | run_single_exp | minerva_math_algebra  | kChanBoost-25      | 32   | 2      | 2     | 2     | 4         | 0.25"
+    # "3  | run_single_exp | minerva_math_algebra  | kChanBoost-37.5    | 32   | 2      | 2     | 2     | 4         | 0.375"
+    # "4  | run_single_exp | minerva_math_algebra  | kChanBoost-50      | 32   | 2      | 2     | 2     | 4         | 0.5"
+    # "5  | run_single_exp | minerva_math_algebra  | kChanBoost-62.5    | 32   | 2      | 2     | 2     | 4         | 0.625"
+    # "6  | run_single_exp | minerva_math_algebra  | kChanBoost-75      | 32   | 2      | 2     | 2     | 4         | 0.75"
+    # "7  | run_single_exp | minerva_math_algebra  | kChanBoost-87.5    | 32   | 2      | 2     | 2     | 4         | 0.875"
+    "0  | run_single_exp | gsm8k_cot_llama  | sinkKIVI-K4V2      | 32   | 1      | 4     | 2     | 4         | 0.0"
+    "1  | run_single_exp | gsm8k_cot_llama  | sinkKIVI-K4V2    | 32   | 2      | 4     | 2     | 4         | 0.0"
+    "2  | run_single_exp | minerva_math_algebra  | sinkKIVI-K4V2      | 32   | 1      | 4     | 2     | 4         | 0.0"
+    "3  | run_single_exp | minerva_math_algebra  | sinkKIVI-K4V2    | 32   | 2      | 4     | 2     | 4         | 0.0"
 )
 
 # ============================================================================
