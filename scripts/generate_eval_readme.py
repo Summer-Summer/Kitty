@@ -22,10 +22,19 @@ SEL_LABELS = {
     "sel2": "sel2 (Variance)",
 }
 
-METRICS = [
-    ("exact_match,strict-match", "Strict Match"),
-    ("exact_match,flexible-extract", "Flexible Extract"),
-]
+# Metric key -> display label
+METRIC_LABELS = {
+    "exact_match,strict-match": "Strict Match",
+    "exact_match,flexible-extract": "Flexible Extract",
+    "exact_match,none": "Exact Match",
+    "math_verify,none": "Math Verify",
+}
+
+# Per-task metric order; falls back to auto-detection from collected data
+TASK_METRICS = {
+    "gsm8k_cot_llama": ["exact_match,strict-match", "exact_match,flexible-extract"],
+    "minerva_math_algebra": ["exact_match,none", "math_verify,none"],
+}
 
 DIGITS = 4  # decimal places for rounding
 
@@ -91,11 +100,10 @@ def collect_results() -> dict:
                 else:
                     col_key = cfg["promote_ratio"]
 
-                for metric_key, _ in METRICS:
-                    if metric_key in stats:
-                        results[model][sel_key][task][col_key][metric_key] = (
-                            stats[metric_key]["values"]
-                        )
+                for metric_key in stats:
+                    results[model][sel_key][task][col_key][metric_key] = (
+                        stats[metric_key]["values"]
+                    )
 
     return results
 
@@ -153,7 +161,11 @@ def generate_readme(results: dict) -> str:
                 lines.append("")
                 task_data = results[model][sel_key][task]
 
-                for metric_key, metric_label in METRICS:
+                metrics = [
+                    (k, METRIC_LABELS.get(k, k))
+                    for k in TASK_METRICS.get(task, list(METRIC_LABELS.keys()))
+                ]
+                for metric_key, metric_label in metrics:
                     lines.append(f"**{metric_label}**")
                     lines.append("")
 
