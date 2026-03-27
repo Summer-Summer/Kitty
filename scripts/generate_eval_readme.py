@@ -22,18 +22,12 @@ SEL_LABELS = {
     "sel2": "sel2 (Variance)",
 }
 
-# Metric key -> display label
+# Known metric key -> display label (for pretty names)
 METRIC_LABELS = {
     "exact_match,strict-match": "Strict Match",
     "exact_match,flexible-extract": "Flexible Extract",
     "exact_match,none": "Exact Match",
     "math_verify,none": "Math Verify",
-}
-
-# Per-task metric order; falls back to auto-detection from collected data
-TASK_METRICS = {
-    "gsm8k_cot_llama": ["exact_match,strict-match", "exact_match,flexible-extract"],
-    "minerva_math_algebra": ["exact_match,none", "math_verify,none"],
 }
 
 DIGITS = 4  # decimal places for rounding
@@ -100,10 +94,11 @@ def collect_results() -> dict:
                 else:
                     col_key = cfg["promote_ratio"]
 
-                for metric_key in stats:
-                    results[model][sel_key][task][col_key][metric_key] = (
-                        stats[metric_key]["values"]
-                    )
+                for metric_key, metric_stats in stats.items():
+                    if "values" in metric_stats:
+                        results[model][sel_key][task][col_key][metric_key] = (
+                            metric_stats["values"]
+                        )
 
     return results
 
@@ -161,11 +156,17 @@ def generate_readme(results: dict) -> str:
                 lines.append("")
                 task_data = results[model][sel_key][task]
 
-                metrics = [
-                    (k, METRIC_LABELS.get(k, k))
-                    for k in TASK_METRICS.get(task, list(METRIC_LABELS.keys()))
-                ]
-                for metric_key, metric_label in metrics:
+                # Collect all metric keys present for this task (across all col_keys)
+                task_metric_keys: list[str] = []
+                seen: set[str] = set()
+                for col_key in COL_KEYS:
+                    for mk in task_data.get(col_key, {}):
+                        if mk not in seen:
+                            task_metric_keys.append(mk)
+                            seen.add(mk)
+
+                for metric_key in task_metric_keys:
+                    metric_label = METRIC_LABELS.get(metric_key, metric_key)
                     lines.append(f"**{metric_label}**")
                     lines.append("")
 
