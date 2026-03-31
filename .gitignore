@@ -10,3 +10,7 @@ venv/
 .cache/
 build/
 log/
+
+latency_benchmarking/logs
+latency_benchmarking/Mar29_logs
+latency_benchmarking/Mar30_logs

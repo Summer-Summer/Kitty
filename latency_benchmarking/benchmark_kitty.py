@@ -1,16 +1,72 @@
 # examples/run_qwen3_kitty.py
 
 from typing import Optional
+import csv
+import os
 import time
 import shutil
 import gc
 import torch
 from transformers import AutoTokenizer, PreTrainedModel, PretrainedConfig
+from transformers import LogitsProcessor, LogitsProcessorList
 from transformers.models.qwen3 import Qwen3Config
 from transformers.models.qwen3 import Qwen3ForCausalLM
 from kitty.models.qwen3 import Qwen3ForCausalLM_Kitty
 from kitty.kvcache import get_kvcache_kitty
 #
+
+
+class TTFTRecorder(LogitsProcessor):
+    """Records wall-clock time when first called, i.e. after prefill completes."""
+    def __init__(self):
+        self.t: Optional[float] = None
+        self._fired = False
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        if not self._fired:
+            torch.cuda.synchronize()
+            self.t = time.perf_counter()
+            self._fired = True
+        return scores
+
+
+_CSV_HEADER = [
+    "mode", "batch_size", "input_tokens", "output_tokens",
+    "ttft_s", "e2e_s",
+    "job_level_tps",       # batch_size * output_tokens / e2e
+    "otps",                # output_tokens / (e2e - ttft), per sequence
+    "actual_qps",          # batch_size / e2e
+    "per_gpu_tps_mean",    # mean of per-run (batch_size * output_tokens / run_e2e)
+    "per_gpu_tps_stdev",   # stdev of above
+]
+
+def write_csv_result(
+    csv_path: str, mode: str, batch_size: int,
+    input_tokens: int, output_tokens: int,
+    ttft: float, e2e: float,
+    run_e2e_list: list,
+) -> None:
+    job_level_tps = batch_size * output_tokens / e2e
+    otps          = output_tokens / (e2e - ttft) if (e2e - ttft) > 0 else float("inf")
+    actual_qps    = batch_size / e2e
+    # approximate per_gpu_tps per run (num_gpus=1 for single-GPU benchmark)
+    per_run_tps   = [batch_size * output_tokens / t for t in run_e2e_list]
+    tps_mean      = sum(per_run_tps) / len(per_run_tps)
+    variance      = sum((x - tps_mean) ** 2 for x in per_run_tps) / len(per_run_tps)
+    tps_stdev     = variance ** 0.5
+
+    write_header = not os.path.exists(csv_path)
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(_CSV_HEADER)
+        writer.writerow([
+            mode, batch_size, input_tokens, output_tokens,
+            f"{ttft:.6f}", f"{e2e:.6f}",
+            f"{job_level_tps:.2f}", f"{otps:.2f}", f"{actual_qps:.4f}",
+            f"{tps_mean:.2f}", f"{tps_stdev:.2f}",
+        ])
+    print(f"Results appended to {csv_path}")
 
 
 def get_prompt(prompt_choice: int) -> tuple[str, str]:
@@ -104,6 +160,14 @@ def get_prompt(prompt_choice: int) -> tuple[str, str]:
         (D) 10^-4 eV
         Let's think step by step: ",
         """
+    elif prompt_choice == 4:
+        task_name = "synthetic_8192"
+        # "hi," is ~2 tokens; reserve ~20 tokens for suffix + chat template overhead
+        _PHRASE = "hi,"
+        _PHRASE_TOKENS = 2
+        _SUFFIX = "Write a very long essay about San Francisco"
+        _N = int((8192 - 16) / _PHRASE_TOKENS)
+        prompt = _PHRASE * _N + _SUFFIX
     else:
         task_name = "general"
         prompt = "现在父亲的年龄是儿子的 3 倍。再过 15 年后，父亲的年龄会是儿子的 2 倍。请回答以下两个问题： 1.现在父亲几岁？ 2.现在儿子几岁？"
@@ -114,20 +178,25 @@ def get_prompt(prompt_choice: int) -> tuple[str, str]:
 import argparse
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model',                  type=str, default="Qwen/Qwen3-8B",  help='Qwen3 model to load')
+    parser.add_argument('--model',                  type=str, default="Qwen/Qwen3-4B-Thinking-2507",  help='Qwen3 model to load')
     parser.add_argument("--cache_implementation",   type=int, default=0,                help="Choosing KV cache implementation: (0) for Kitty; (1) for FP16 static cache; (2) for FP16 dynamic cache; (3) for INT4 quantized cache with quanto backend.")
-    parser.add_argument("--max_seq_len",            type=int, default=2048,             help="Maximum sequence length for KV cache.")
+    parser.add_argument("--max_seq_len",            type=int, default=8192,             help="Maximum sequence length for KV cache.")
     parser.add_argument("--batch_size",             type=int, default=32,               help="Batch size for generation, repeat the prompt for each batch")
-    parser.add_argument("--prompt_choice",          type=int, default=1,                help="Choice of prompt to use")
+    parser.add_argument("--prompt_choice",          type=int, default=3,                help="Choice of prompt to use")
     parser.add_argument("--warmup_runs",            type=int, default=2,                help="Number of warmup runs")
     parser.add_argument("--repeat_runs",            type=int, default=3,                help="Number of repeat runs for benchmarking")
+    parser.add_argument("--csv",                     type=str, default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.csv"), help="Path to CSV file for appending results")
     return parser
 
 
-def benchmark_kitty(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, max_seq_len, model_config: PretrainedConfig, warmup_runs: int, repeat_runs: int,) -> None:
+def benchmark_kitty(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, max_seq_len, model_config: PretrainedConfig, warmup_runs: int, repeat_runs: int, csv_path: Optional[str] = None) -> None:
     max_batch_size = inputs.input_ids.size(0)
+    num_prefill_tokens = inputs.input_ids.shape[-1]
+    print(f"Prefill tokens: {num_prefill_tokens}")
+
     # Warm up
-    for _ in range(warmup_runs):
+    for i in range(warmup_runs):
+        print(f"Warmup [{i+1}/{warmup_runs}] ...", flush=True)
         kitty_kv_cache = get_kvcache_kitty(
             model_config,
             max_batch_size,
@@ -151,15 +220,20 @@ def benchmark_kitty(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: di
     print("Warmup done.")
 
     # Execution
-    torch.cuda.synchronize()
-    start_time = time.perf_counter()
+    ttft_times = []
+    run_e2e_times = []
+    total_elapsed = 0.0
 
-    for _ in range(repeat_runs):
+    for i in range(repeat_runs):
+        print(f"Run [{i+1}/{repeat_runs}] ...", flush=True)
+        ttft_recorder = TTFTRecorder()
         kitty_kv_cache = get_kvcache_kitty(
             model_config,
             max_batch_size,
             max_seq_len
         )
+        torch.cuda.synchronize()
+        run_start = time.perf_counter()
         outputs = model.generate(
             input_ids=inputs.input_ids.cuda(),
             attention_mask=inputs.attention_mask.cuda() if "attention_mask" in inputs else None,
@@ -174,13 +248,29 @@ def benchmark_kitty(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: di
             past_key_values=kitty_kv_cache,                   # Use Kitty KV cache
             eos_token_id = None,                                   # Disable early stopping for fair comparison
             disable_compile = True,                                # Disable torch.compile
+            logits_processor=LogitsProcessorList([ttft_recorder]),
         )
+        torch.cuda.synchronize()
+        run_end = time.perf_counter()
         kitty_kv_cache = None
-    
-    torch.cuda.synchronize()
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
-    print(f"Model.generate() average execution time: { (elapsed_time/repeat_runs):.4f} seconds.")
+        run_e2e = run_end - run_start
+        run_ttft = ttft_recorder.t - run_start
+        total_elapsed += run_e2e
+        ttft_times.append(run_ttft)
+        run_e2e_times.append(run_e2e)
+        print(f"  -> e2e={run_e2e:.4f}s  ttft={run_ttft:.4f}s", flush=True)
+
+    avg_e2e = total_elapsed / repeat_runs
+    avg_ttft = sum(ttft_times) / repeat_runs
+    num_output_tokens = outputs.shape[-1] - num_prefill_tokens
+    job_level_tps = max_batch_size * num_output_tokens / avg_e2e
+    otps          = num_output_tokens / (avg_e2e - avg_ttft) if (avg_e2e - avg_ttft) > 0 else float("inf")
+    actual_qps    = max_batch_size / avg_e2e
+    print(f"Model.generate() average execution time: {avg_e2e:.4f} seconds.")
+    print(f"Average TTFT (prefill): {avg_ttft:.4f} seconds.")
+    print(f"Output tokens: {num_output_tokens}  |  job_level_TPS: {job_level_tps:.2f}  |  OTPS: {otps:.2f}  |  QPS: {actual_qps:.4f}")
+
+    write_csv_result(csv_path, "kitty", max_batch_size, num_prefill_tokens, num_output_tokens, avg_ttft, avg_e2e, run_e2e_times)
 
     # Decode the output sequences
     output_sequences = outputs
@@ -194,12 +284,16 @@ def benchmark_kitty(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: di
         print(text)
     print('-' * width)
 
-    print(f"Model.generate() average execution time: { (elapsed_time/repeat_runs):.4f} seconds.")
+    print(f"Model.generate() average execution time: {avg_e2e:.4f} seconds.")
 
 
-def benchmark_fp16_kv(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, max_seq_len, warmup_runs: int, repeat_runs: int, cache_implementation: str, cache_config: Optional[dict]) -> None:
+def benchmark_fp16_kv(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: dict, max_seq_len, warmup_runs: int, repeat_runs: int, cache_implementation: str, cache_config: Optional[dict], csv_path: Optional[str] = None) -> None:
+    num_prefill_tokens = inputs.input_ids.shape[-1]
+    print(f"Prefill tokens: {num_prefill_tokens}")
+
     # Warm up
-    for _ in range(warmup_runs):
+    for i in range(warmup_runs):
+        print(f"Warmup [{i+1}/{warmup_runs}] ...", flush=True)
         outputs = model.generate(
         input_ids=inputs.input_ids.cuda(),
         attention_mask=inputs.attention_mask.cuda() if "attention_mask" in inputs else None,
@@ -217,12 +311,17 @@ def benchmark_fp16_kv(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: 
         disable_compile = True,                                # Disable torch.compile
         )
     print("Warmup done.")
-    
-    # Execution
-    torch.cuda.synchronize()
-    start_time = time.perf_counter()
 
-    for _ in range(repeat_runs):
+    # Execution
+    ttft_times = []
+    run_e2e_times = []
+    total_elapsed = 0.0
+
+    for i in range(repeat_runs):
+        print(f"Run [{i+1}/{repeat_runs}] ...", flush=True)
+        ttft_recorder = TTFTRecorder()
+        torch.cuda.synchronize()
+        run_start = time.perf_counter()
         outputs = model.generate(
         input_ids=inputs.input_ids.cuda(),
         attention_mask=inputs.attention_mask.cuda() if "attention_mask" in inputs else None,
@@ -238,12 +337,29 @@ def benchmark_fp16_kv(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: 
         cache_config=cache_config,
         eos_token_id = None,                                   # Disable early stopping for fair comparison
         disable_compile = True,                                # Disable torch.compile
+        logits_processor=LogitsProcessorList([ttft_recorder]),
         )
+        torch.cuda.synchronize()
+        run_end = time.perf_counter()
+        run_e2e = run_end - run_start
+        run_ttft = ttft_recorder.t - run_start
+        total_elapsed += run_e2e
+        ttft_times.append(run_ttft)
+        run_e2e_times.append(run_e2e)
+        print(f"  -> e2e={run_e2e:.4f}s  ttft={run_ttft:.4f}s", flush=True)
 
-    torch.cuda.synchronize()
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
-    print(f"Model.generate() average execution time: { (elapsed_time/repeat_runs):.4f} seconds.")
+    batch_size = inputs.input_ids.size(0)
+    avg_e2e = total_elapsed / repeat_runs
+    avg_ttft = sum(ttft_times) / repeat_runs
+    num_output_tokens = outputs.shape[-1] - num_prefill_tokens
+    job_level_tps = batch_size * num_output_tokens / avg_e2e
+    otps          = num_output_tokens / (avg_e2e - avg_ttft) if (avg_e2e - avg_ttft) > 0 else float("inf")
+    actual_qps    = batch_size / avg_e2e
+    print(f"Model.generate() average execution time: {avg_e2e:.4f} seconds.")
+    print(f"Average TTFT (prefill): {avg_ttft:.4f} seconds.")
+    print(f"Output tokens: {num_output_tokens}  |  job_level_TPS: {job_level_tps:.2f}  |  OTPS: {otps:.2f}  |  QPS: {actual_qps:.4f}")
+
+    write_csv_result(csv_path, cache_implementation, batch_size, num_prefill_tokens, num_output_tokens, avg_ttft, avg_e2e, run_e2e_times)
 
     # Decode the output sequences
     output_sequences = outputs
@@ -258,7 +374,7 @@ def benchmark_fp16_kv(model: PreTrainedModel, tokenizer: AutoTokenizer, inputs: 
         print(text)
     print('-' * width)
 
-    print(f"Model.generate() average execution time: { (elapsed_time/repeat_runs):.4f} seconds.")
+    print(f"Model.generate() average execution time: {avg_e2e:.4f} seconds.")
 
 
 def main() -> None:
@@ -307,18 +423,18 @@ def main() -> None:
     # Benchmarking
     if args.cache_implementation == 1:
         print("Using FP16 static KV cache implementation of Huggingface transformers.")
-        benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "static", None)
+        benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "static", None, args.csv)
     elif args.cache_implementation == 2:
         print("Using FP16 dynamic KV cache implementation of Huggingface transformers.")
-        benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "dynamic", None)
+        benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "dynamic", None, args.csv)
     elif args.cache_implementation == 3:
         print("Using INT4 quantized KV cache implementation with HQQ backend of Huggingface transformers.")
         cache_config = {"backend": "quanto"}
-        benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "quantized", cache_config)
+        benchmark_fp16_kv(model, tokenizer, inputs, args.max_seq_len, args.warmup_runs, args.repeat_runs, "quantized", cache_config, args.csv)
     else:
         assert args.cache_implementation == 0
         print("Using Kitty KV cache implementation.")
-        benchmark_kitty(model, tokenizer, inputs, args.max_seq_len, config, args.warmup_runs, args.repeat_runs)
+        benchmark_kitty(model, tokenizer, inputs, args.max_seq_len, config, args.warmup_runs, args.repeat_runs, args.csv)
 
     #
     model.to("cpu")
